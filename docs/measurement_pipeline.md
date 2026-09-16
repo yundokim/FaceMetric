@@ -44,6 +44,8 @@ expressionRMSDelta = sqrt((1/K) Σ (b_k(t) - b_k(t-1))²)
 
 This measures temporal expression stability. It does not prove that an expression is clinically neutral. The interface instructs the participant to maintain a neutral expression, while the implementation only rejects rapid coefficient change.
 
+Each completed scan also stores the coordinate-wise median coefficient for every blend shape observed in accepted frames. Baseline and follow-up representative coefficients are compared with an RMS difference and ranked per-coefficient deltas. An engineering warning is shown above RMS 0.05. This is an unvalidated expression-consistency flag, not a clinical expression classifier.
+
 trackingStable means all of the following engineering checks passed for the frame:
 
 - ARKit camera tracking state is normal.
@@ -140,6 +142,8 @@ The app never chooses a strategy merely because it gives the smallest whole-face
 ## Surface distance and sign convention
 
 SurfaceDifferenceAnalyzer is implemented as registration infrastructure. For every requested aligned follow-up vertex it finds the closest point on eligible baseline triangles. Distance sign is determined by dot(alignedPoint - closestPoint, orientedBaselineTriangleNormal). Positive means the direction of the baseline triangle normal and negative means the opposite direction. Neither sign implies improvement or harm.
+
+After the final transform is frozen, every strategy reports treatment-ROI mean signed distance, mean absolute distance, RMS, P95 absolute distance, maximum absolute distance, and the vertex/closest-baseline-point location of the maximum sample. Maximum distance is explicitly noise-sensitive. Stable-ROI residuals are displayed alongside treatment measurements so registration error is not confused with treatment-region displacement.
 
 Region-restricted metrics include only vertices covered by a triangle fully contained in that region. This avoids introducing lateral boundary distance when a boundary vertex has no eligible regional triangle. Comprehensive M6 presentation and global/regional product metrics remain separate future work.
 

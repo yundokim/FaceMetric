@@ -67,6 +67,8 @@ Clinical interpretation is out of scope until appropriate validation data exists
 
 - [x] Freeze the final rigid transform before signed point-to-surface analysis.
 - [x] Keep treatment measurements outside every registration objective.
+- [x] Display actual treatment-ROI signed/absolute/RMS/P95/maximum displacement after registration.
+- [x] Compare representative baseline/follow-up blend shapes and flag expression differences.
 
 ## M5H — Registration Strategy Comparison
 

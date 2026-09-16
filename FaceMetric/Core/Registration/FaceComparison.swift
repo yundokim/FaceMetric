@@ -8,6 +8,7 @@ struct FaceComparison: Codable, Equatable, Identifiable, Sendable {
     let followupScanID: UUID
     let studyRegion: RegistrationStudyRegion
     let registrationComparison: RegistrationComparisonResult
+    let expressionDifference: BetweenScanExpressionMetrics
 
     init(
         id: UUID = UUID(),
@@ -15,7 +16,8 @@ struct FaceComparison: Codable, Equatable, Identifiable, Sendable {
         baselineScanID: UUID,
         followupScanID: UUID,
         studyRegion: RegistrationStudyRegion,
-        registrationComparison: RegistrationComparisonResult
+        registrationComparison: RegistrationComparisonResult,
+        expressionDifference: BetweenScanExpressionMetrics
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -23,6 +25,7 @@ struct FaceComparison: Codable, Equatable, Identifiable, Sendable {
         self.followupScanID = followupScanID
         self.studyRegion = studyRegion
         self.registrationComparison = registrationComparison
+        self.expressionDifference = expressionDifference
     }
 
     var productionRegistration: StrategyRegistrationResult? {

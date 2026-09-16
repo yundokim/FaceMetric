@@ -165,6 +165,24 @@ struct RegistrationPipelineAndSyntheticValidationTests {
             #expect(strategy.metrics.rotationRecoveryErrorRadians.isFinite)
             #expect(strategy.metrics.translationRecoveryErrorMeters.isFinite)
         }
+
+        let comparison = try RegistrationStrategyComparisonEngine().compare(
+            baseline: validationMesh(),
+            followup: result.poseTransform.applying(
+                to: SyntheticDeformationEngine().deform(
+                    mesh: validationMesh(),
+                    parameters: result.deformation
+                ).mesh
+            ),
+            profile: .engineeringProfile(for: .chin)
+        )
+        for strategy in comparison.strategyResults {
+            #expect(strategy.treatmentSurfaceDifference.metrics.sampleCount > 0)
+            #expect(
+                strategy.treatmentSurfaceDifference.metrics.maximumAbsoluteResidual
+                    >= strategy.treatmentSurfaceDifference.metrics.p95AbsoluteResidual
+            )
+        }
     }
 
     private func validationMesh(size: Int = 21) -> FaceMesh {

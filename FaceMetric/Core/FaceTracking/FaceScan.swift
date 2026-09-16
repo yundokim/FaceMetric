@@ -21,6 +21,8 @@ struct FaceAcquisitionMetadata: Codable, Equatable, Sendable {
     let acceptedFrameTimestamps: [TimeInterval]
     let acceptedFrameQuality: [ScanQualityMetrics]
     let blendShapeNames: [String]
+    /// Coordinate-wise median ARKit blend-shape coefficients across accepted frames.
+    let representativeBlendShapes: [String: Float]
     let aggregationMethod: String
     let coordinateSystem: String
 }

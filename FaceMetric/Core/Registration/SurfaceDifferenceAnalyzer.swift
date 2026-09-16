@@ -6,13 +6,15 @@ public struct SurfaceResidualMetrics: Codable, Equatable, Sendable {
     public let meanAbsoluteResidual: Float
     public let rmsResidual: Float
     public let p95AbsoluteResidual: Float
+    public let maximumAbsoluteResidual: Float
     public let sampleCount: Int
 
-    public static let empty = SurfaceResidualMetrics(
+    nonisolated public static let empty = SurfaceResidualMetrics(
         meanSignedResidual: 0,
         meanAbsoluteResidual: 0,
         rmsResidual: 0,
         p95AbsoluteResidual: 0,
+        maximumAbsoluteResidual: 0,
         sampleCount: 0
     )
 }
@@ -140,6 +142,7 @@ public struct SurfaceDifferenceAnalyzer: Sendable {
             meanAbsoluteResidual: meanAbsolute,
             rmsResidual: rms,
             p95AbsoluteResidual: absolute[max(0, p95Index)],
+            maximumAbsoluteResidual: absolute.last ?? 0,
             sampleCount: values.count
         )
     }

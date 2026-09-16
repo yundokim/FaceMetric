@@ -5,7 +5,7 @@ public struct RegistrationBounds: Codable, Equatable, Sendable {
     public let minimum: FaceMeshPoint
     public let maximum: FaceMeshPoint
 
-    public init(minimum: SIMD3<Float>, maximum: SIMD3<Float>) {
+    nonisolated public init(minimum: SIMD3<Float>, maximum: SIMD3<Float>) {
         self.minimum = FaceMeshPoint(minimum)
         self.maximum = FaceMeshPoint(maximum)
     }
@@ -24,7 +24,7 @@ public struct RegistrationRegionMask: Codable, Equatable, Sendable {
     public let includedBounds: [RegistrationBounds]
     public let excludedBounds: [RegistrationBounds]
 
-    public init(
+    nonisolated public init(
         identifier: String,
         includedBounds: [RegistrationBounds],
         excludedBounds: [RegistrationBounds] = []
@@ -35,7 +35,7 @@ public struct RegistrationRegionMask: Codable, Equatable, Sendable {
     }
 
     /// Engineering default only. The normalized boxes require empirical validation.
-    public static let genericStableRegions = RegistrationRegionMask(
+    nonisolated public static let genericStableRegions = RegistrationRegionMask(
         identifier: "generic-stable-v1-engineering-default",
         includedBounds: [
             RegistrationBounds(
@@ -53,7 +53,7 @@ public struct RegistrationRegionMask: Codable, Equatable, Sendable {
         ]
     )
 
-    public static let entireFace = RegistrationRegionMask(
+    nonisolated public static let entireFace = RegistrationRegionMask(
         identifier: "entire-face",
         includedBounds: [
             RegistrationBounds(
@@ -96,7 +96,7 @@ public struct FaceRegistrationConfiguration: Codable, Equatable, Sendable {
     public let maximumCorrespondenceDistanceMeters: Float
     public let minimumCorrespondenceCount: Int
 
-    public init(
+    nonisolated public init(
         regionMask: RegistrationRegionMask,
         maximumIterations: Int,
         convergenceToleranceMeters: Float,
@@ -111,7 +111,7 @@ public struct FaceRegistrationConfiguration: Codable, Equatable, Sendable {
     }
 
     /// Engineering defaults requiring empirical validation on repeated physical scans.
-    public static let engineeringDefault = FaceRegistrationConfiguration(
+    nonisolated public static let engineeringDefault = FaceRegistrationConfiguration(
         regionMask: .genericStableRegions,
         maximumIterations: 20,
         convergenceToleranceMeters: 0.000_01,

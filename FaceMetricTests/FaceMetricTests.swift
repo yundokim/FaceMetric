@@ -149,6 +149,18 @@ struct FaceMetricTests {
         }
     }
 
+    @Test
+    func betweenScanExpressionDifferenceDetectsChangedBlendShapes() {
+        let result = ExpressionDifferenceAnalyzer.compare(
+            baseline: ["jawOpen": 0, "mouthPucker": 0.02],
+            followup: ["jawOpen": 0.1, "mouthPucker": 0.22]
+        )
+
+        #expect(result.exceedsEngineeringWarningLevel)
+        #expect(result.maximumAbsoluteDifference > 0.19)
+        #expect(result.largestDifferences.first?.name == "mouthPucker")
+    }
+
     private func cameraToFaceTransform(
         yaw: Float = 0,
         roll: Float = .pi / 2,

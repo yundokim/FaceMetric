@@ -40,7 +40,7 @@ final class FaceScanManager {
         let mesh: FaceMesh
         let timestamp: TimeInterval
         let metrics: ScanQualityMetrics
-        let blendShapeNames: Set<String>
+        let blendShapes: [String: Float]
     }
 
     let configuration: ScanQualityConfiguration
@@ -116,7 +116,7 @@ final class FaceScanManager {
                 mesh: mesh,
                 timestamp: frameTimestamp,
                 metrics: evaluation.metrics,
-                blendShapeNames: Set(blendShapes.keys)
+                blendShapes: blendShapes
             )
         )
 
@@ -165,9 +165,17 @@ final class FaceScanManager {
         )
         let blendShapeNames = acceptedFrames
             .reduce(into: Set<String>()) { result, frame in
-                result.formUnion(frame.blendShapeNames)
+                result.formUnion(frame.blendShapes.keys)
             }
             .sorted()
+        let representativeBlendShapes = Dictionary(
+            uniqueKeysWithValues: blendShapeNames.map { name in
+                (
+                    name,
+                    median(acceptedFrames.map { $0.blendShapes[name] ?? 0 })
+                )
+            }
+        )
 
         return FaceScan(
             id: UUID(),
@@ -183,6 +191,7 @@ final class FaceScanManager {
                 acceptedFrameTimestamps: acceptedFrames.map(\.timestamp),
                 acceptedFrameQuality: acceptedFrames.map(\.metrics),
                 blendShapeNames: blendShapeNames,
+                representativeBlendShapes: representativeBlendShapes,
                 aggregationMethod: "Coordinate-wise median for each topology-matched vertex",
                 coordinateSystem: "ARKit face-anchor local coordinates; meters; right-handed"
             ),

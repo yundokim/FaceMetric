@@ -139,7 +139,11 @@ struct FaceComparisonView: View {
                     baselineScanID: baselineScan.id,
                     followupScanID: followupScan.id,
                     studyRegion: selectedRegion,
-                    registrationComparison: result
+                    registrationComparison: result,
+                    expressionDifference: ExpressionDifferenceAnalyzer.compare(
+                        baseline: baselineScan.acquisitionMetadata.representativeBlendShapes,
+                        followup: followupScan.acquisitionMetadata.representativeBlendShapes
+                    )
                 )
             } catch {
                 registrationError = String(describing: error)
@@ -288,6 +292,35 @@ private struct RegistrationSummarySection: View {
 
     var body: some View {
         Section("Research / Developer") {
+            if comparison.expressionDifference.exceedsEngineeringWarningLevel {
+                Label(
+                    "Expression differs between scans. Treatment measurements may include expression-related motion.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.yellow)
+            }
+            LabeledContent(
+                "Between-scan expression RMS",
+                value: String(
+                    format: "%.4f / engineering flag %.4f",
+                    comparison.expressionDifference.rmsDifference,
+                    ExpressionDifferenceAnalyzer.engineeringWarningRMS
+                )
+            )
+            .font(.caption.monospaced())
+
+            if !comparison.expressionDifference.largestDifferences.isEmpty {
+                DisclosureGroup("Largest blend-shape differences") {
+                    ForEach(comparison.expressionDifference.largestDifferences) { difference in
+                        LabeledContent(
+                            difference.name,
+                            value: String(format: "%+.4f", difference.delta)
+                        )
+                    }
+                }
+                .font(.caption.monospaced())
+            }
+
             NavigationLink("Inspect Registration Comparison") {
                 RegistrationDebugView(
                     baseline: baseline,
@@ -319,6 +352,48 @@ private struct RegistrationSummarySection: View {
                         "Stable ROI P95",
                         value: millimeters(result.stableROIResiduals.p95AbsoluteResidual)
                     )
+
+                    Divider()
+                    Text("Treatment ROI: \(comparison.studyRegion.rawValue)")
+                        .font(.subheadline)
+                    LabeledContent(
+                        "Mean signed displacement",
+                        value: signedMillimeters(
+                            result.treatmentSurfaceDifference.metrics.meanSignedResidual
+                        )
+                    )
+                    LabeledContent(
+                        "Mean absolute displacement",
+                        value: millimeters(
+                            result.treatmentSurfaceDifference.metrics.meanAbsoluteResidual
+                        )
+                    )
+                    LabeledContent(
+                        "Treatment RMS",
+                        value: millimeters(
+                            result.treatmentSurfaceDifference.metrics.rmsResidual
+                        )
+                    )
+                    LabeledContent(
+                        "Treatment P95",
+                        value: millimeters(
+                            result.treatmentSurfaceDifference.metrics.p95AbsoluteResidual
+                        )
+                    )
+                    LabeledContent(
+                        "Maximum (noise-sensitive)",
+                        value: millimeters(
+                            result.treatmentSurfaceDifference.metrics.maximumAbsoluteResidual
+                        )
+                    )
+                    if let peak = result.treatmentSurfaceDifference.samples.max(
+                        by: { abs($0.signedDistanceMeters) < abs($1.signedDistanceMeters) }
+                    ) {
+                        LabeledContent(
+                            "Peak location",
+                            value: "vertex #\(peak.vertexIndex) · \(pointMillimeters(peak.closestBaselinePoint))"
+                        )
+                    }
                 }
                 .font(.caption.monospaced())
             }
@@ -327,5 +402,18 @@ private struct RegistrationSummarySection: View {
 
     private func millimeters(_ meters: Float) -> String {
         String(format: "%.3f mm", meters * 1_000)
+    }
+
+    private func signedMillimeters(_ meters: Float) -> String {
+        String(format: "%+.3f mm", meters * 1_000)
+    }
+
+    private func pointMillimeters(_ point: FaceMeshPoint) -> String {
+        String(
+            format: "(%.1f, %.1f, %.1f) mm",
+            point.x * 1_000,
+            point.y * 1_000,
+            point.z * 1_000
+        )
     }
 }

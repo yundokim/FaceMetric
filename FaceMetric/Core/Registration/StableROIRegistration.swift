@@ -228,6 +228,7 @@ public struct StrategyRegistrationResult: Codable, Equatable, Sendable, Identifi
     public let finalTransform: RigidTransform
     public let anchorRegistration: RigidRegistrationResult?
     public let stableROIResiduals: SurfaceResidualMetrics
+    public let treatmentSurfaceDifference: SurfaceDifferenceResult
     public let refinementIterations: Int
     public let baselineAnchors: [AnatomicalAnchor]
     public let followupAnchors: [AnatomicalAnchor]
@@ -302,6 +303,18 @@ public struct RegistrationStrategyComparisonEngine: Sendable {
             sampleIndices: stableIndices,
             baselineRegionIndices: Set(stableIndices)
         ).metrics
+        let treatmentIndices = profile.treatmentVertexIndices(in: baseline)
+        let treatmentSet = Set(treatmentIndices)
+        func treatmentDifference(
+            transform: RigidTransform
+        ) throws -> SurfaceDifferenceResult {
+            try SurfaceDifferenceAnalyzer().analyze(
+                baseline: baseline,
+                alignedFollowup: transform.applying(to: followup),
+                sampleIndices: treatmentIndices,
+                baselineRegionIndices: treatmentSet
+            )
+        }
 
         return RegistrationComparisonResult(
             profileIdentifier: profile.identifier,
@@ -311,6 +324,9 @@ public struct RegistrationStrategyComparisonEngine: Sendable {
                     finalTransform: fullFaceResult.transform,
                     anchorRegistration: nil,
                     stableROIResiduals: fullFaceStableMetrics,
+                    treatmentSurfaceDifference: try treatmentDifference(
+                        transform: fullFaceResult.transform
+                    ),
                     refinementIterations: fullFaceResult.iterationCount,
                     baselineAnchors: baselineAnchors,
                     followupAnchors: followupAnchors
@@ -320,6 +336,9 @@ public struct RegistrationStrategyComparisonEngine: Sendable {
                     finalTransform: anchorResult.transform,
                     anchorRegistration: anchorResult,
                     stableROIResiduals: anchorStableMetrics,
+                    treatmentSurfaceDifference: try treatmentDifference(
+                        transform: anchorResult.transform
+                    ),
                     refinementIterations: 0,
                     baselineAnchors: baselineAnchors,
                     followupAnchors: followupAnchors
@@ -329,6 +348,9 @@ public struct RegistrationStrategyComparisonEngine: Sendable {
                     finalTransform: refinement.transform,
                     anchorRegistration: anchorResult,
                     stableROIResiduals: refinement.residualMetrics,
+                    treatmentSurfaceDifference: try treatmentDifference(
+                        transform: refinement.transform
+                    ),
                     refinementIterations: refinement.iterationCount,
                     baselineAnchors: baselineAnchors,
                     followupAnchors: followupAnchors

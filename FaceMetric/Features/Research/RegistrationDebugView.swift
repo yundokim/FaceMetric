@@ -102,6 +102,35 @@ private struct RegistrationMetricSection: View {
                 "Stable P95",
                 value: millimeters(result.stableROIResiduals.p95AbsoluteResidual)
             )
+            Divider()
+            LabeledContent(
+                "Treatment mean signed",
+                value: signedMillimeters(
+                    result.treatmentSurfaceDifference.metrics.meanSignedResidual
+                )
+            )
+            LabeledContent(
+                "Treatment mean absolute",
+                value: millimeters(
+                    result.treatmentSurfaceDifference.metrics.meanAbsoluteResidual
+                )
+            )
+            LabeledContent(
+                "Treatment RMS",
+                value: millimeters(result.treatmentSurfaceDifference.metrics.rmsResidual)
+            )
+            LabeledContent(
+                "Treatment P95",
+                value: millimeters(
+                    result.treatmentSurfaceDifference.metrics.p95AbsoluteResidual
+                )
+            )
+            LabeledContent(
+                "Treatment maximum",
+                value: millimeters(
+                    result.treatmentSurfaceDifference.metrics.maximumAbsoluteResidual
+                )
+            )
             LabeledContent("Rigid refinement iterations", value: result.refinementIterations.formatted())
         }
         .font(.caption.monospaced())
@@ -109,6 +138,10 @@ private struct RegistrationMetricSection: View {
 
     private func millimeters(_ meters: Float) -> String {
         String(format: "%.3f mm", meters * 1_000)
+    }
+
+    private func signedMillimeters(_ meters: Float) -> String {
+        String(format: "%+.3f mm", meters * 1_000)
     }
 }
 
