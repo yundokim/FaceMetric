@@ -10,6 +10,10 @@ public struct ScanQualityMetrics: Codable, Equatable, Sendable {
     let roll: Float
     /// Euclidean camera-to-face-origin distance, in meters.
     let distance: Float
+    /// Camera-relative horizontal face-origin offset, in meters.
+    let horizontalOffset: Float
+    /// Camera-relative vertical face-origin offset, in meters.
+    let verticalOffset: Float
     /// True when ARKit tracking, pose, distance, and mesh-motion checks pass.
     let trackingStable: Bool
     /// True when temporal blend-shape RMS change is within the configured limit.
@@ -27,6 +31,9 @@ public struct ScanQualityConfiguration: Codable, Equatable, Sendable {
     let maximumRollDeviation: Float
     let minimumDistance: Float
     let maximumDistance: Float
+    let targetDistance: Float
+    let maximumAbsoluteHorizontalOffset: Float
+    let maximumAbsoluteVerticalOffset: Float
     let maximumMeshRMS: Float
     let maximumExpressionRMSDelta: Float
     let requiredValidFrameCount: Int
@@ -37,12 +44,15 @@ public struct ScanQualityConfiguration: Codable, Equatable, Sendable {
     /// These values are not medical or clinical limits. They require empirical
     /// calibration with physical-device test-retest data.
     public nonisolated static let engineeringDefault = ScanQualityConfiguration(
-        maximumAbsoluteYaw: 10 * .pi / 180,
-        maximumAbsolutePitch: 10 * .pi / 180,
+        maximumAbsoluteYaw: 7 * .pi / 180,
+        maximumAbsolutePitch: 7 * .pi / 180,
         targetRoll: .pi / 2,
-        maximumRollDeviation: 10 * .pi / 180,
-        minimumDistance: 0.25,
-        maximumDistance: 0.55,
+        maximumRollDeviation: 7 * .pi / 180,
+        minimumDistance: 0.37,
+        maximumDistance: 0.43,
+        targetDistance: 0.40,
+        maximumAbsoluteHorizontalOffset: 0.025,
+        maximumAbsoluteVerticalOffset: 0.025,
         maximumMeshRMS: 0.0008,
         maximumExpressionRMSDelta: 0.025,
         requiredValidFrameCount: 30,
@@ -75,6 +85,7 @@ enum ScanFrameRejectionReason: String, Codable, Equatable, Sendable {
     case yawOutsideRange
     case pitchOutsideRange
     case rollOutsideRange
+    case faceOffCenter
     case tooClose
     case tooFar
     case meshMotion
@@ -116,6 +127,8 @@ public enum ScanQualityAnalyzer {
             pitch: angles.pitch,
             roll: angles.roll,
             distance: distance,
+            horizontalOffset: translation.x,
+            verticalOffset: translation.y,
             meshRMS: meshRMS,
             expressionRMSDelta: expressionRMSDelta,
             configuration: configuration
@@ -129,6 +142,8 @@ public enum ScanQualityAnalyzer {
                 pitch: angles.pitch,
                 roll: angles.roll,
                 distance: distance,
+                horizontalOffset: translation.x,
+                verticalOffset: translation.y,
                 trackingStable: trackingStable,
                 expressionStable: expressionStable,
                 meshVariance: meshVariance,
@@ -172,6 +187,8 @@ public enum ScanQualityAnalyzer {
         pitch: Float,
         roll: Float,
         distance: Float,
+        horizontalOffset: Float,
+        verticalOffset: Float,
         meshRMS: Float,
         expressionRMSDelta: Float,
         configuration: ScanQualityConfiguration
@@ -196,6 +213,10 @@ public enum ScanQualityAnalyzer {
         if angularDifference(roll, configuration.targetRoll)
             > configuration.maximumRollDeviation {
             reasons.append(.rollOutsideRange)
+        }
+        if abs(horizontalOffset) > configuration.maximumAbsoluteHorizontalOffset
+            || abs(verticalOffset) > configuration.maximumAbsoluteVerticalOffset {
+            reasons.append(.faceOffCenter)
         }
         if distance < configuration.minimumDistance {
             reasons.append(.tooClose)
@@ -227,6 +248,9 @@ public enum ScanQualityAnalyzer {
             return .trackingUnavailable
         }
         if reasons.contains(.trackingLimited) {
+            return .centerFace
+        }
+        if reasons.contains(.faceOffCenter) {
             return .centerFace
         }
         if reasons.contains(.tooClose) {

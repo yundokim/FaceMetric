@@ -172,6 +172,20 @@ private struct ScanDebugOverlay: View {
                     value: distanceWithRange(metrics.distance)
                 )
                 LabeledContent(
+                    "Horizontal center",
+                    value: offsetWithLimit(
+                        metrics.horizontalOffset,
+                        maximum: ScanQualityConfiguration.engineeringDefault.maximumAbsoluteHorizontalOffset
+                    )
+                )
+                LabeledContent(
+                    "Vertical center",
+                    value: offsetWithLimit(
+                        metrics.verticalOffset,
+                        maximum: ScanQualityConfiguration.engineeringDefault.maximumAbsoluteVerticalOffset
+                    )
+                )
+                LabeledContent(
                     "Mesh RMS",
                     value: valueWithMaximum(
                         sqrt(metrics.meshVariance),
@@ -266,9 +280,13 @@ private struct ScanDebugOverlay: View {
 
     private func distanceWithRange(_ meters: Float) -> String {
         let configuration = ScanQualityConfiguration.engineeringDefault
-        return "\(millimeters(meters)) / "
+        return "\(millimeters(meters)) / target \(millimeters(configuration.targetDistance)) · "
             + "\(millimeters(configuration.minimumDistance))–"
             + "\(millimeters(configuration.maximumDistance))"
+    }
+
+    private func offsetWithLimit(_ meters: Float, maximum: Float) -> String {
+        "\(millimeters(meters)) / ±\(millimeters(maximum))"
     }
 
     private func valueWithMaximum(_ meters: Float, maximum: Float) -> String {
@@ -289,6 +307,8 @@ private struct ScanDebugOverlay: View {
             return "pitch"
         case .rollOutsideRange:
             return "roll"
+        case .faceOffCenter:
+            return "face off center"
         case .tooClose:
             return "too close"
         case .tooFar:

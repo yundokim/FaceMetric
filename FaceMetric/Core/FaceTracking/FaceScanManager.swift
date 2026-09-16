@@ -199,6 +199,8 @@ final class FaceScanManager {
             pitch: median(metrics.map(\.pitch)),
             roll: median(metrics.map(\.roll)),
             distance: median(metrics.map(\.distance)),
+            horizontalOffset: median(metrics.map(\.horizontalOffset)),
+            verticalOffset: median(metrics.map(\.verticalOffset)),
             trackingStable: metrics.allSatisfy(\.trackingStable),
             expressionStable: metrics.allSatisfy(\.expressionStable),
             meshVariance: median(metrics.map(\.meshVariance)),

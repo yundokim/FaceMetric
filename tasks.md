@@ -10,6 +10,7 @@ Clinical interpretation is out of scope until appropriate validation data exists
 
 - [x] Preserve the working ARKit TrueDepth/ARSCNView pipeline.
 - [x] Capture camera-relative yaw, pitch, roll, and face distance.
+- [x] Enforce a narrow target-distance band and horizontal/vertical face centering.
 - [x] Capture ARKit tracking state and temporal blend-shape stability.
 - [x] Calculate temporal per-vertex mesh variance.
 - [x] Put prototype acceptance limits in one explicitly unvalidated engineering configuration.

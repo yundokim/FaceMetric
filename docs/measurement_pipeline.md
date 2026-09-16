@@ -55,6 +55,8 @@ expressionStable is separately reported and requires the temporal blend-shape RM
 
 All limits are centralized in ScanQualityConfiguration.engineeringDefault. They are engineering starting values, not medical limits, and require empirical physical-device validation.
 
+The current stricter composition defaults target a 0.40 m camera-to-face-origin distance, accept 0.37–0.43 m, and require horizontal and vertical face-origin offsets within ±0.025 m. Yaw, pitch, and roll deviation are limited to 7°. These are acquisition-standardization settings selected for the prototype; they are not calibrated clinical thresholds and should be revised from physical-device test-retest distributions.
+
 ## Scan aggregation
 
 A final scan is not a single AR frame. The scanner collects topology-compatible frames that pass the quality checks until both a configured valid-frame count and minimum accepted-frame interval are satisfied.

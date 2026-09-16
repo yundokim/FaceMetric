@@ -104,6 +104,42 @@ struct FaceMetricTests {
     }
 
     @Test
+    func distanceOutsideTightCaptureBandIsRejected() {
+        let mesh = mesh(x: 0, topology: [0, 1, 2])
+        let evaluation = ScanQualityAnalyzer.evaluate(
+            mesh: mesh,
+            previousMesh: mesh,
+            blendShapes: [:],
+            previousBlendShapes: [:],
+            cameraToFaceTransform: cameraToFaceTransform(distance: 0.44),
+            trackingState: .normal,
+            configuration: configuration
+        )
+
+        #expect(!evaluation.isFrameValid)
+        #expect(evaluation.rejectionReasons.contains(.tooFar))
+        #expect(evaluation.guidance == .moveCloser)
+    }
+
+    @Test
+    func offCenterFaceIsRejectedIndependentlyOfDistance() {
+        let mesh = mesh(x: 0, topology: [0, 1, 2])
+        let evaluation = ScanQualityAnalyzer.evaluate(
+            mesh: mesh,
+            previousMesh: mesh,
+            blendShapes: [:],
+            previousBlendShapes: [:],
+            cameraToFaceTransform: cameraToFaceTransform(horizontalOffset: 0.03),
+            trackingState: .normal,
+            configuration: configuration
+        )
+
+        #expect(!evaluation.isFrameValid)
+        #expect(evaluation.rejectionReasons.contains(.faceOffCenter))
+        #expect(evaluation.guidance == .centerFace)
+    }
+
+    @Test
     func incompatibleTopologyIsNotAggregated() {
         let first = mesh(x: 0, topology: [0, 1, 2])
         let second = mesh(x: 0, topology: [0, 2, 1])
@@ -116,7 +152,9 @@ struct FaceMetricTests {
     private func cameraToFaceTransform(
         yaw: Float = 0,
         roll: Float = .pi / 2,
-        distance: Float = 0.4
+        distance: Float = 0.4,
+        horizontalOffset: Float = 0,
+        verticalOffset: Float = 0
     ) -> simd_float4x4 {
         let yawRotation = simd_float4x4(
             simd_quatf(angle: yaw, axis: SIMD3(0, 1, 0))
@@ -125,7 +163,12 @@ struct FaceMetricTests {
             simd_quatf(angle: roll, axis: SIMD3(0, 0, 1))
         )
         var transform = yawRotation * rollRotation
-        transform.columns.3 = SIMD4(0, 0, -distance, 1)
+        transform.columns.3 = SIMD4(
+            horizontalOffset,
+            verticalOffset,
+            -distance,
+            1
+        )
         return transform
     }
 
