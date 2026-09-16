@@ -74,37 +74,72 @@ The scan retains:
 
 Rejected-frame meshes are not currently retained to limit memory use; only their count is retained. This is a known reproducibility limitation.
 
-## Registration algorithm
+## Registration rationale
 
-Both representative meshes remain in ARKit face-anchor local coordinates. Registration estimates a transform T_baseline_followup that maps follow-up face-local points into baseline face-local coordinates:
+Full-face ICP is not the production registration objective. If a treatment changes the chin, nose, cheek, or lips, minimizing error over the whole face can rotate or translate the follow-up surface toward the changed region. That can attenuate the real treatment displacement and introduce false displacement in unchanged regions. Full-face rigid ICP remains available only as a research control.
+
+Registration instead asks which rigid transform best aligns configured anatomical reference structures expected to remain stable for the selected study. It estimates T_baseline_followup:
 
 p_baseline = R × p_followup + t
 
-The initial transform is a least-squares rigid fit between topology-matched vertices selected by the registration ROI. This is justified for compatible ARFaceGeometry outputs with the same topology and provides deterministic initial alignment. A quaternion form of the orthogonal Procrustes/Horn solution estimates rotation; translation is the difference between the target centroid and rotated source centroid.
+R is constrained to a proper rotation with det(R) = +1 and t is a translation. There is no scale, shear, or non-rigid deformation. The transform is frozen before surface differences are calculated. Raw meshes are never overwritten.
 
-The initial transform is refined with point-to-point ICP. Each transformed follow-up ROI vertex is paired with its nearest baseline ROI vertex within the configured maximum correspondence distance. A new rigid transform is fitted to those pairs and composed with the accumulated transform. Iteration stops when the absolute change in RMS is no greater than the configured tolerance or when the iteration limit is reached.
+## Anatomical anchors
 
-Registration RMS is:
+An anchor is a robust local patch summary, not a single ARKit vertex. A versioned normalized baseline patch selects candidate vertices. Their coordinate-wise median is calculated, the configured fraction farthest from that median is removed, and the arithmetic centroid of the retained vertices becomes the anchor position. The anchor stores its semantic ID, confidence, and retained source vertices.
 
-RMS = sqrt((1/N) Σ ||R p_i + t - q_i||²)
+Because compatible ARFaceGeometry meshes have stable topology, the robust source set established on the baseline is reused to calculate the corresponding follow-up patch centroid. The rigid solver receives only corresponding AnatomicalAnchor values; it does not contain hard-coded ARKit vertex indices.
 
-where p_i is an aligned follow-up correspondence and q_i is its baseline correspondence. RMS is stored in meters and displayed in millimeters. The result also records correspondence count, iteration count, convergence status, ROI identifier, and the rigid transform. `converged` describes numerical convergence only; it is not a claim of anatomical or clinical accuracy.
+Current engineering anchor IDs are upper forehead, left/right forehead, left/right periorbital, and nasal root. Nose profiles exclude the nasal-root anchor; cheek profiles use forehead and nasal-root anchors to avoid the cheek ROI. These definitions are placeholders and have not been clinically validated.
 
-No scale, shear, per-vertex offsets, or other non-rigid deformation is estimated. Raw baseline and follow-up meshes are not modified.
+## Weighted rigid point-set registration
 
-## Registration ROI
+For corresponding follow-up anchors p_i and baseline anchors q_i, the solver minimizes:
 
-RegistrationRegionMask defines versioned inclusion and exclusion boxes in normalized baseline face bounds. Normalized coordinates are calculated independently per axis as (v - boundsMinimum) / (boundsMaximum - boundsMinimum). The follow-up uses the same selected topology indices.
+Σ w_i ||R p_i + t - q_i||²
 
-The `generic-stable-v1-engineering-default` mask includes an upper central face box and two lateral mid-face boxes. These are engineering defaults intended to reduce reliance on central lower-face areas. They are not validated anatomical or medical regions. Inclusion and exclusion boxes are configurable so future procedure-specific pipelines can exclude a measurement ROI from registration without changing the registration algorithm.
+where w_i is the minimum confidence of the corresponding pair. Weighted centroids and the weighted cross-covariance are accumulated in Double precision. The proper rotation is obtained with Horn's quaternion eigensystem, which is mathematically equivalent to the proper-rotation Kabsch objective; the symmetric 4 × 4 eigenproblem is solved by Jacobi rotations. Translation is targetCentroid - R × sourceCentroid. The result is stored as Float because ARKit mesh input is Float.
 
-The current engineering defaults are 20 iterations, 0.01 mm RMS-change convergence tolerance, 10 mm maximum correspondence distance, and at least 80 correspondences. These values require empirical validation on independent scans.
+Residuals are calculated after alignment. A median/MAD robust scale identifies outlier residuals. Such anchors are Huber-downweighted, not silently deleted, and every decision is retained in AnchorResidual and quality metadata. Low-confidence anchors are also recorded.
+
+The solver fails instead of returning an ill-conditioned transform when there are fewer than three usable anchors, insufficient spatial spread, near-collinearity, zero weighted geometry, or det(R) differs materially from +1. Numerical thresholds are centralized engineering defaults, not medical acceptability limits.
+
+## Registration profiles and ROI separation
+
+RegistrationProfile keeps four independent concepts:
+
+- referenceAnchors: patches used for anchor registration;
+- stableSurfaceRegions: surfaces eligible for optional refinement;
+- excludedRegions: expression-sensitive or procedure-sensitive areas;
+- treatmentRegions: regions measured after registration.
+
+The stable index set is explicitly reduced by both excludedRegions and treatmentRegions. Tests verify that treatment vertices and anchor source vertices are disjoint for chin, nose, cheek, and lip/perioral profiles.
+
+Profiles currently use a normalized upper-face stable surface. The lower central face is marked expression-sensitive. Treatment masks are configurable normalized boxes. All masks are engineering placeholders and require validation on ARFaceGeometry and clinical study protocols.
+
+## Optional stable-ROI rigid refinement
+
+After anchor initialization, StableROIRegistrationRefiner can run trimmed point-to-point ICP using only the stable reference set. Correspondences beyond the configured distance are omitted, the configured largest-distance fraction is trimmed, and every update is another proper rigid transform. Treatment and excluded regions cannot participate. Refinement can be disabled for anchor-only comparison.
+
+The current engineering defaults are 15 iterations, 0.01 mm change tolerance, 10 mm correspondence distance, 15% trimming, and 60 retained correspondences. They are not validated accuracy thresholds.
+
+## Registration quality metrics
+
+Anchor metrics are weighted RMS, maximum residual, and each individual residual. Stable-surface metrics are signed mean, mean absolute, RMS, and P95 absolute point-to-surface residual. The stable region is observed after registration; it is not numerically forced to zero.
+
+Three strategies are always identified explicitly:
+
+1. Full-face rigid ICP — control only.
+2. Anatomical anchors only.
+3. Anatomical anchors plus stable-ROI rigid refinement — production default.
+
+The app never chooses a strategy merely because it gives the smallest whole-face RMS.
 
 ## Surface distance and sign convention
 
-Not implemented (planned M6).
+SurfaceDifferenceAnalyzer is implemented as registration infrastructure. For every requested aligned follow-up vertex it finds the closest point on eligible baseline triangles. Distance sign is determined by dot(alignedPoint - closestPoint, orientedBaselineTriangleNormal). Positive means the direction of the baseline triangle normal and negative means the opposite direction. Neither sign implies improvement or harm.
 
-The intended metric is signed point-to-surface distance after rigid registration, not unverified index-to-index distance. The sign convention will be defined relative to the oriented baseline surface: positive will mean outward displacement and negative inward displacement. Neither sign implies improvement or harm.
+Region-restricted metrics include only vertices covered by a triangle fully contained in that region. This avoids introducing lateral boundary distance when a boundary vertex has no eligible regional triangle. Comprehensive M6 presentation and global/regional product metrics remain separate future work.
 
 ## Region definitions
 
@@ -116,11 +151,21 @@ Not implemented.
 
 Future changed-area estimates must state how triangles intersect thresholds and region boundaries. Future volume estimates must state the numerical integral and boundary assumptions and will remain marked experimental until phantom and reference-system validation support them.
 
-## Synthetic deformation
+## Synthetic deformation and registration bias
 
-Not implemented (planned M7).
+SyntheticDeformationEngine computes area-weighted vertex normals from adjacent oriented triangles and applies a treatment-mask-limited Gaussian displacement:
 
-The planned deformation is a configurable Gaussian spatial weight applied along an explicitly chosen mesh-normal direction. Formula, normal estimation, boundary handling, and ground-truth integration will be documented with that implementation.
+d_i = direction × d_max × exp(-||v_i - c||² / (2σ²))
+
+where c is the mean position of treatment vertices, σ is the configured spatial spread, and direction is outward or inward along the vertex normal. The exact displacement for every vertex is retained as ground truth.
+
+After deformation, a known rigid pose is applied and all three registration strategies run through the normal pipeline. Registration attenuation is:
+
+attenuation = |groundTruthPeak| - |recoveredPeak|
+
+relativeAttenuation = attenuation / |groundTruthPeak|
+
+Peak, mean, and RMS recovery errors are recovered minus ground truth. Stable false displacement is the post-registration stable-region point-to-surface RMS. Rotation error is the angle of R_measured × transpose(R_expected); translation error is the Euclidean distance between measured and expected inverse-pose translations. Spatial localization error is the baseline-surface distance between ground-truth and recovered peak vertex locations.
 
 ## Known limitations
 
@@ -131,9 +176,11 @@ The planned deformation is a configurable Gaussian spatial weight applied along 
 - Rejected raw frames are not retained.
 - Device model currently records UIKit's broad model label rather than a hardware identifier.
 - Baseline and follow-up scans can be captured separately for registration, but remain in memory only; no persistent encrypted scan store exists yet.
-- Registration currently requires identical vertex counts/topology for deterministic initial alignment.
-- The generic registration ROI and ICP defaults are not empirically validated.
-- ICP is point-to-point with a brute-force nearest-neighbor search; robust weighting and point-to-plane refinement are not implemented.
-- No surface-change measurement exists yet.
+- Baseline-to-follow-up patch correspondence currently requires compatible, stable ARFaceGeometry topology.
+- Anchor patches, profiles, stable ROI, exclusions, and all numerical defaults are engineering placeholders.
+- Stable refinement is trimmed point-to-point ICP with brute-force nearest-neighbor search; point-to-plane refinement is not implemented.
+- Triangle winding from ARFaceGeometry is assumed consistent for signed distance.
+- Synthetic tests use an analytic face-like mesh and do not reproduce TrueDepth noise, missing data, expression, or tissue mechanics.
+- The current research heatmap is exploratory; comprehensive M6 analysis is not complete.
 - Simulator builds cannot validate TrueDepth behavior.
 - Successful software tests do not establish measurement accuracy or clinical validity.

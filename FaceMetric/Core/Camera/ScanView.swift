@@ -358,9 +358,13 @@ private struct FaceTrackingView: UIViewRepresentable {
 
         func startSession(in sceneView: ARSCNView) {
             guard ARFaceTrackingConfiguration.isSupported else {
-                acquisition.wrappedValue = scanManager.markFaceNotDetected(
+                let unavailableUpdate = scanManager.markFaceNotDetected(
                     trackingState: .unavailable
                 )
+
+                DispatchQueue.main.async { [weak self] in
+                    self?.acquisition.wrappedValue = unavailableUpdate
+                }
                 return
             }
 
@@ -378,8 +382,13 @@ private struct FaceTrackingView: UIViewRepresentable {
             }
 
             lastCaptureRequestID = requestID
-            acquisition.wrappedValue = scanManager.beginCapture()
-            completedScan.wrappedValue = nil
+            let captureUpdate = scanManager.beginCapture()
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                acquisition.wrappedValue = captureUpdate
+                completedScan.wrappedValue = nil
+            }
         }
 
         func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {

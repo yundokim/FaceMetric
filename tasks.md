@@ -33,6 +33,52 @@ Clinical interpretation is out of scope until appropriate validation data exists
 - [x] Test translation, rotation, and combined pose recovery.
 - [ ] Validate the generic stable-region mask and registration defaults on independent physical-iPhone scans.
 
+## M5A — Anatomical Anchor Abstraction
+
+- [x] Define robust patch-derived anatomical anchors independent of registration internals.
+- [x] Record anchor confidence and contributing source vertices.
+
+## M5B — Registration Profiles
+
+- [x] Separate reference anchors, stable surfaces, excluded regions, and treatment ROI.
+- [x] Add configurable engineering profiles for chin, nose, lip/perioral, and cheek studies.
+
+## M5C — Weighted Rigid Registration
+
+- [x] Implement confidence-weighted proper rigid point-set alignment with no scale or shear.
+- [x] Report transform, rotation, translation, per-anchor residuals, RMS, and maximum residual.
+
+## M5D — Registration Quality Checks
+
+- [x] Detect insufficient, low-confidence, collinear, and poorly distributed anchors.
+- [x] Record robustly downweighted/rejected anchor decisions in debug metadata.
+
+## M5E — Stable-ROI Rigid Refinement
+
+- [x] Add optional robust rigid ICP restricted to the stable reference ROI.
+- [x] Ensure treatment and excluded regions cannot enter stable-ROI refinement.
+
+## M5F — Registration Quality Metrics
+
+- [x] Calculate signed, absolute, RMS, and P95 residuals over stable ROI surfaces.
+
+## M5G — Surface Difference Integration
+
+- [x] Freeze the final rigid transform before signed point-to-surface analysis.
+- [x] Keep treatment measurements outside every registration objective.
+
+## M5H — Registration Strategy Comparison
+
+- [x] Compare full-face ICP control, anchor-only, and anchor + stable-ROI methods explicitly.
+- [x] Add research visualization and calculated metrics for each method.
+
+## M7 — Registration Bias Validation
+
+- [x] Generate known local chin, nose, cheek, and lip/perioral deformations.
+- [x] Combine each deformation with deterministic rigid pose perturbations.
+- [x] Measure treatment attenuation and stable-region false displacement for all strategies.
+- [ ] Repeat registration-bias validation on captured ARFaceGeometry meshes and physical phantoms.
+
 ## M6 — Surface Change Analysis
 
 - [ ] Implement signed point-to-surface displacement.

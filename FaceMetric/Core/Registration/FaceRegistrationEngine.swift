@@ -10,7 +10,7 @@ public struct RegistrationBounds: Codable, Equatable, Sendable {
         self.maximum = FaceMeshPoint(maximum)
     }
 
-    func contains(_ point: SIMD3<Float>) -> Bool {
+    nonisolated func contains(_ point: SIMD3<Float>) -> Bool {
         let lower = minimum.simdValue
         let upper = maximum.simdValue
         return point.x >= lower.x && point.x <= upper.x
@@ -63,7 +63,7 @@ public struct RegistrationRegionMask: Codable, Equatable, Sendable {
         ]
     )
 
-    func selectedIndices(in vertices: [SIMD3<Float>]) -> [Int] {
+    nonisolated func selectedIndices(in vertices: [SIMD3<Float>]) -> [Int] {
         guard let first = vertices.first else { return [] }
 
         var minimum = first
@@ -125,18 +125,18 @@ public struct RigidTransform: Codable, Equatable, Sendable {
     public let rotation: [Float]
     public let translation: FaceMeshPoint
 
-    public init(rotation: [Float], translation: SIMD3<Float>) {
+    nonisolated public init(rotation: [Float], translation: SIMD3<Float>) {
         precondition(rotation.count == 9)
         self.rotation = rotation
         self.translation = FaceMeshPoint(translation)
     }
 
-    public static let identity = RigidTransform(
+    nonisolated public static let identity = RigidTransform(
         rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
         translation: .zero
     )
 
-    public func applying(to point: SIMD3<Float>) -> SIMD3<Float> {
+    nonisolated public func applying(to point: SIMD3<Float>) -> SIMD3<Float> {
         let rotated = SIMD3<Float>(
             rotation[0] * point.x + rotation[1] * point.y + rotation[2] * point.z,
             rotation[3] * point.x + rotation[4] * point.y + rotation[5] * point.z,
@@ -145,14 +145,22 @@ public struct RigidTransform: Codable, Equatable, Sendable {
         return rotated + translation.simdValue
     }
 
-    public func applying(to mesh: FaceMesh) -> FaceMesh {
+    nonisolated public func applying(to mesh: FaceMesh) -> FaceMesh {
         FaceMesh(
             vertices: mesh.simdVertices.map(applying(to:)),
             triangleIndices: mesh.triangleIndices
         )
     }
 
-    func concatenating(_ preceding: RigidTransform) -> RigidTransform {
+    nonisolated public func inverted() -> RigidTransform {
+        let inverseRotation = matrix.transpose
+        return RigidTransform(
+            matrix: inverseRotation,
+            translation: -(inverseRotation * translation.simdValue)
+        )
+    }
+
+    nonisolated func concatenating(_ preceding: RigidTransform) -> RigidTransform {
         let left = matrix
         let right = preceding.matrix
         let combinedRotation = left * right
@@ -160,7 +168,7 @@ public struct RigidTransform: Codable, Equatable, Sendable {
         return RigidTransform(matrix: combinedRotation, translation: combinedTranslation)
     }
 
-    private var matrix: simd_float3x3 {
+    nonisolated var matrix: simd_float3x3 {
         simd_float3x3(rows: [
             SIMD3<Float>(rotation[0], rotation[1], rotation[2]),
             SIMD3<Float>(rotation[3], rotation[4], rotation[5]),
@@ -168,7 +176,7 @@ public struct RigidTransform: Codable, Equatable, Sendable {
         ])
     }
 
-    fileprivate init(matrix: simd_float3x3, translation: SIMD3<Float>) {
+    nonisolated init(matrix: simd_float3x3, translation: SIMD3<Float>) {
         self.init(
             rotation: [
                 matrix[0, 0], matrix[1, 0], matrix[2, 0],
