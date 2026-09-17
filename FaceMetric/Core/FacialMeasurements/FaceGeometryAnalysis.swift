@@ -63,6 +63,9 @@ struct FaceGeometryMetric: Codable, Equatable, Identifiable, Sendable {
     let unit: String
     let evidenceLevel: FaceGeometryEvidenceLevel
     let referenceText: String?
+    let referenceSource: FaceGeometryReferenceSource?
+    let referenceSampleCount: Int?
+    let isReferenceProvisional: Bool?
     let interpretation: String
     let componentScore: Float?
     let landmarkNames: [FaceAnatomicalLandmark]
@@ -122,10 +125,40 @@ enum FaceGeometryAnalysisError: Error, LocalizedError, Equatable {
 }
 
 struct FaceGeometryAnalyzer: Sendable {
-    private let configuration: FaceLandmarkConfig
+    static let foreheadExtensionFactor: Float = 1.20
 
-    init(configuration: FaceLandmarkConfig) {
+    private let configuration: FaceLandmarkConfig
+    private let referenceProfile: FaceGeometryReferenceProfile?
+
+    init(
+        configuration: FaceLandmarkConfig,
+        referenceProfile: FaceGeometryReferenceProfile? = .maleV01
+    ) {
         self.configuration = configuration
+        self.referenceProfile = referenceProfile
+    }
+
+    init(configuration: FaceLandmarkConfig, referenceSex: FaceGeometryReferenceSex) {
+        self.init(
+            configuration: configuration,
+            referenceProfile: FaceGeometryReferenceProfiles.profile(for: referenceSex)
+        )
+    }
+
+    static func virtualTrichion(
+        rawForeheadBoundary: SIMD3<Float>,
+        glabella: SIMD3<Float>,
+        verticalAxis: SIMD3<Float>
+    ) -> SIMD3<Float> {
+        let rawForeheadVector = rawForeheadBoundary - glabella
+        let rawUpperThird = simd_length(rawForeheadVector)
+        guard rawUpperThird > .ulpOfOne else { return glabella }
+
+        let normalizedVertical = safeNormalize(verticalAxis, fallback: simd_normalize(rawForeheadVector))
+        let superiorDirection = simd_dot(normalizedVertical, rawForeheadVector) >= 0
+            ? normalizedVertical
+            : -normalizedVertical
+        return glabella + superiorDirection * rawUpperThird * foreheadExtensionFactor
     }
 
     func analyze(scan: FaceScan) throws -> FaceGeometryAnalysisResult {
@@ -154,12 +187,17 @@ struct FaceGeometryAnalyzer: Sendable {
         let faceWidth = simd_distance(zyL, zyR)
         guard faceWidth > 0.001 else { throw FaceGeometryAnalysisError.degenerateFaceWidth }
 
-        let tr = try point(.trichionOrForeheadBoundary)
+        let rawForeheadBoundary = try point(.trichionOrForeheadBoundary)
         let glabella = try point(.glabella)
         let subnasale = try point(.subnasale)
         let menton = try point(.menton)
         let transverse = simd_normalize(zyR - zyL)
         let vertical = simd_normalize(glabella - menton)
+        let virtualTrichion = Self.virtualTrichion(
+            rawForeheadBoundary: rawForeheadBoundary,
+            glabella: glabella,
+            verticalAxis: vertical
+        )
         let depth = safeNormalize(simd_cross(transverse, vertical), fallback: SIMD3<Float>(0, 0, 1))
         let referenceOrigin: SIMD3<Float>
         if generatedROIs.stableUpperMidFace.isEmpty, vertices.count < 100 {
@@ -174,11 +212,10 @@ struct FaceGeometryAnalyzer: Sendable {
         let ye = "Ye et al. (2026), Front Comput Neurosci, DOI: 10.3389/fncom.2026.1705259, Table 1"
         let gkantidis = "Gkantidis et al. (2026), Prog Orthod 27:13, DOI: 10.1186/s40510-026-00617-2"
 
-        func addA(
+        func addLiteratureReference(
             _ id: FaceGeometryMetricID,
             value: Float,
-            reference: ClosedRange<Float>?,
-            target: Float? = nil,
+            reference: ClosedRange<Float>,
             referenceText: String,
             interpretation: String,
             landmarks: [FaceAnatomicalLandmark]
@@ -189,62 +226,87 @@ struct FaceGeometryAnalyzer: Sendable {
                 unit: id == .zygomaticAsymmetryMM ? "mm" : "ratio",
                 evidenceLevel: .numericReference,
                 referenceText: "\(referenceText) — \(ye)",
+                referenceSource: nil,
+                referenceSampleCount: nil,
+                isReferenceProvisional: nil,
+                interpretation: interpretation,
+                componentScore: GeometryScorer.continuousIntervalScore(value: value, interval: reference),
+                landmarkNames: landmarks
+            ))
+        }
+
+        func addProfiled(
+            _ id: FaceGeometryMetricID,
+            value: Float,
+            interpretation: String,
+            landmarks: [FaceAnatomicalLandmark]
+        ) {
+            let reference = referenceProfile?.reference(for: id)
+            metrics.append(FaceGeometryMetric(
+                id: id,
+                value: value,
+                unit: "ratio",
+                evidenceLevel: .numericReference,
+                referenceText: reference.map {
+                    "\($0.provenance); target \($0.target), ideal interval \($0.idealInterval.lowerBound)...\($0.idealInterval.upperBound)"
+                },
+                referenceSource: reference?.source,
+                referenceSampleCount: reference?.sampleCount,
+                isReferenceProvisional: reference?.isProvisional,
                 interpretation: interpretation,
                 componentScore: reference.map {
-                    GeometryScorer.continuousIntervalScore(value: value, interval: $0)
-                } ?? target.map {
-                    GeometryScorer.proportionalTargetScore(value: value, target: $0)
+                    GeometryScorer.continuousIntervalScore(value: value, interval: $0.idealInterval)
                 },
                 landmarkNames: landmarks
             ))
         }
 
-        // A1 Facial height/width. Landmarks: substituted forehead boundary (Tr*)–Me and ZyL–ZyR.
-        // Formula: |Tr*−Me| / |ZyL−ZyR|. Level A; Ye 2026 gives 1.618 ±5% as an MA constraint.
-        // Tr* is not a true hairline in ARKit and is explicitly experimental.
-        let faceHeightWidth = simd_distance(tr, menton) / faceWidth
-        addA(.faceHeightWidth, value: faceHeightWidth, reference: tolerance(center: 1.618, fraction: 0.05), referenceText: "~1.618 ±5%; experimental Tr* substitution", interpretation: "Overall height relative to bizygomatic width.", landmarks: [.trichionOrForeheadBoundary, .menton, .zygionLeft, .zygionRight])
+        // A1 Facial height/width. The virtual trichion is an estimate created by extending the
+        // raw ARKit forehead boundary measurement along the facial vertical axis; it is not observed anatomy.
+        // Formula: |virtualTrichion−Me| / |ZyL−ZyR|.
+        let faceHeightWidth = simd_distance(virtualTrichion, menton) / faceWidth
+        addProfiled(.faceHeightWidth, value: faceHeightWidth, interpretation: "Overall height relative to bizygomatic width using a virtual trichion estimated from the ARKit forehead boundary.", landmarks: [.trichionOrForeheadBoundary, .menton, .zygionLeft, .zygionRight])
 
-        // A2 Facial thirds. Landmarks: Tr*–G, G–Sn, Sn–Me. Formula: each length / mean third.
-        // Level A; Ye 2026 gives 1:1:1 ±10%; upper third is experimental because ARKit omits hairline.
-        let thirds = [simd_distance(tr, glabella), simd_distance(glabella, subnasale), simd_distance(subnasale, menton)]
+        // A2 Facial thirds. Landmarks: estimated virtualTrichion–G, G–Sn, Sn–Me.
+        // Formula: each length / mean third. The 1.20 factor is measurement correction, not an aesthetic target.
+        let thirds = [simd_distance(virtualTrichion, glabella), simd_distance(glabella, subnasale), simd_distance(subnasale, menton)]
         let meanThird = max(thirds.reduce(0, +) / 3, 0.001)
-        addA(.upperThirdRatio, value: thirds[0] / meanThird, reference: 0.9...1.1, referenceText: "1.0 ±10%; experimental Tr* substitution", interpretation: "Upper third relative to the mean facial third.", landmarks: [.trichionOrForeheadBoundary, .glabella])
-        addA(.middleThirdRatio, value: thirds[1] / meanThird, reference: 0.9...1.1, referenceText: "1.0 ±10%", interpretation: "Middle third relative to the mean facial third.", landmarks: [.glabella, .subnasale])
-        addA(.lowerThirdRatio, value: thirds[2] / meanThird, reference: 0.9...1.1, referenceText: "1.0 ±10%", interpretation: "Lower third relative to the mean facial third.", landmarks: [.subnasale, .menton])
+        addProfiled(.upperThirdRatio, value: thirds[0] / meanThird, interpretation: "Upper third relative to the mean facial third using a virtual trichion estimated from the ARKit forehead boundary.", landmarks: [.trichionOrForeheadBoundary, .glabella])
+        addProfiled(.middleThirdRatio, value: thirds[1] / meanThird, interpretation: "Middle third relative to the mean facial third.", landmarks: [.glabella, .subnasale])
+        addProfiled(.lowerThirdRatio, value: thirds[2] / meanThird, interpretation: "Lower third relative to the mean facial third.", landmarks: [.subnasale, .menton])
 
         // A3 Eye width ratio. Landmarks: En–Ex on each side. Formula: palpebral width / ZyL–ZyR.
         // Level A; Ye 2026 gives face-width/5 ±8% as an MA constraint.
         let leftEyeWidth = try distance(.endocanthionLeft, .exocanthionLeft, point)
         let rightEyeWidth = try distance(.endocanthionRight, .exocanthionRight, point)
-        addA(.leftEyeWidthRatio, value: leftEyeWidth / faceWidth, reference: tolerance(center: 0.2, fraction: 0.08), referenceText: "~0.20 ±8%", interpretation: "Left palpebral width normalized by face width.", landmarks: [.endocanthionLeft, .exocanthionLeft])
-        addA(.rightEyeWidthRatio, value: rightEyeWidth / faceWidth, reference: tolerance(center: 0.2, fraction: 0.08), referenceText: "~0.20 ±8%", interpretation: "Right palpebral width normalized by face width.", landmarks: [.endocanthionRight, .exocanthionRight])
+        addProfiled(.leftEyeWidthRatio, value: leftEyeWidth / faceWidth, interpretation: "Left palpebral width normalized by face width.", landmarks: [.endocanthionLeft, .exocanthionLeft])
+        addProfiled(.rightEyeWidthRatio, value: rightEyeWidth / faceWidth, interpretation: "Right palpebral width normalized by face width.", landmarks: [.endocanthionRight, .exocanthionRight])
 
         // A4 Eye fissure aspect ratio. Landmarks: En–Ex and upper/lower eyelid points.
         // Formula: palpebral width / eyelid aperture. Level A; Ye 2026 gives approximately 3:1.
         let leftAspect = leftEyeWidth / max(try distance(.upperEyelidLeft, .lowerEyelidLeft, point), 0.000_1)
         let rightAspect = rightEyeWidth / max(try distance(.upperEyelidRight, .lowerEyelidRight, point), 0.000_1)
-        addA(.leftEyeAspectRatio, value: leftAspect, reference: nil, target: 3, referenceText: "~3:1; scored by proportional agreement because no tolerance was reported", interpretation: "Left eye width relative to aperture height.", landmarks: [.endocanthionLeft, .exocanthionLeft, .upperEyelidLeft, .lowerEyelidLeft])
-        addA(.rightEyeAspectRatio, value: rightAspect, reference: nil, target: 3, referenceText: "~3:1; scored by proportional agreement because no tolerance was reported", interpretation: "Right eye width relative to aperture height.", landmarks: [.endocanthionRight, .exocanthionRight, .upperEyelidRight, .lowerEyelidRight])
+        addProfiled(.leftEyeAspectRatio, value: leftAspect, interpretation: "Left eye width relative to aperture height.", landmarks: [.endocanthionLeft, .exocanthionLeft, .upperEyelidLeft, .lowerEyelidLeft])
+        addProfiled(.rightEyeAspectRatio, value: rightAspect, interpretation: "Right eye width relative to aperture height.", landmarks: [.endocanthionRight, .exocanthionRight, .upperEyelidRight, .lowerEyelidRight])
 
         // A5 Intercanthal ratio. Landmarks: EnL–EnR. Formula: distance / face width.
         // Level A; Ye 2026 gives 1/5 ±5% as an MA constraint.
-        addA(.intercanthalRatio, value: try distance(.endocanthionLeft, .endocanthionRight, point) / faceWidth, reference: tolerance(center: 0.2, fraction: 0.05), referenceText: "~0.20 ±5%", interpretation: "Inner-canthal spacing normalized by face width.", landmarks: [.endocanthionLeft, .endocanthionRight])
+        addProfiled(.intercanthalRatio, value: try distance(.endocanthionLeft, .endocanthionRight, point) / faceWidth, interpretation: "Inner-canthal spacing normalized by face width.", landmarks: [.endocanthionLeft, .endocanthionRight])
 
         // Nose width is stored as requested, but Ye Table 1 compares alar width with another nasal measure,
         // not face width. No numeric optimum is assigned here. Formula: AlL–AlR / ZyL–ZyR.
-        metrics.append(rawMetric(.noseWidthRatio, value: try distance(.alareLeft, .alareRight, point) / faceWidth, level: .operationalMetric, reference: nil, interpretation: "Alar width normalized by bizygomatic width; no cited optimum in the specified sources.", landmarks: [.alareLeft, .alareRight, .zygionLeft, .zygionRight]))
+        addProfiled(.noseWidthRatio, value: try distance(.alareLeft, .alareRight, point) / faceWidth, interpretation: "Alar width normalized by bizygomatic width.", landmarks: [.alareLeft, .alareRight, .zygionLeft, .zygionRight])
 
         // A6 Upper/lower lip thickness. Landmarks: Ls–Sto and Sto–Li.
         // Formula: upper thickness / lower thickness. Level A; Ye 2026 gives 1:1.6 (~0.625).
         let lipRatio = try distance(.labialeSuperius, .stomion, point) / max(try distance(.stomion, .labialeInferius, point), 0.000_1)
-        addA(.upperLowerLipRatio, value: lipRatio, reference: nil, target: 0.625, referenceText: "~0.625; scored by proportional agreement because no tolerance was reported", interpretation: "Upper lip thickness relative to lower lip thickness.", landmarks: [.labialeSuperius, .stomion, .labialeInferius])
+        addProfiled(.upperLowerLipRatio, value: lipRatio, interpretation: "Upper lip thickness relative to lower lip thickness.", landmarks: [.labialeSuperius, .stomion, .labialeInferius])
 
         // A9 Zygomatic symmetry. Landmarks: ZyL, ZyR and anatomical midsagittal plane.
         // Formula: |distance(ZyL, plane) − distance(ZyR, plane)| in mm.
         // Level A; Ye 2026 gives ≤1 mm as an MA constraint.
         let zyAsymmetry = abs(signedDistance(zyL, origin: midOrigin, normal: transverse).magnitude - signedDistance(zyR, origin: midOrigin, normal: transverse).magnitude) * 1_000
-        addA(.zygomaticAsymmetryMM, value: zyAsymmetry, reference: 0...1, referenceText: "≤1 mm", interpretation: "Difference between left and right zygion distances to the midsagittal plane.", landmarks: [.zygionLeft, .zygionRight])
+        addLiteratureReference(.zygomaticAsymmetryMM, value: zyAsymmetry, reference: 0...1, referenceText: "≤1 mm", interpretation: "Difference between left and right zygion distances to the midsagittal plane.", landmarks: [.zygionLeft, .zygionRight])
 
         let cheekLeft = try roiMeanProjection(indices: generatedROIs.cheekLeft, name: .cheekLeft, vertices: vertices, origin: referenceOrigin, normal: depth) / faceWidth
         let cheekRight = try roiMeanProjection(indices: generatedROIs.cheekRight, name: .cheekRight, vertices: vertices, origin: referenceOrigin, normal: depth) / faceWidth
@@ -320,7 +382,7 @@ struct GeometryScorer: Sendable {
             let values = scored.filter { ids.contains($0.id) }.compactMap(\.componentScore)
             return values.isEmpty ? 0 : values.reduce(0, +) / Float(values.count)
         }
-        let proportion = average([.faceHeightWidth, .upperThirdRatio, .middleThirdRatio, .lowerThirdRatio])
+        let proportion = average([.faceHeightWidth, .upperThirdRatio, .middleThirdRatio, .lowerThirdRatio, .noseWidthRatio])
         let symmetry = average([.zygomaticAsymmetryMM])
         let eye = average([.leftEyeWidthRatio, .rightEyeWidthRatio, .leftEyeAspectRatio, .rightEyeAspectRatio, .intercanthalRatio])
         let lower = average([.upperLowerLipRatio])
@@ -349,10 +411,6 @@ struct ExperimentalAttractivenessScorer: Sendable {
     }
 }
 
-private func tolerance(center: Float, fraction: Float) -> ClosedRange<Float> {
-    (center * (1 - fraction))...(center * (1 + fraction))
-}
-
 private func safeNormalize(_ vector: SIMD3<Float>, fallback: SIMD3<Float>) -> SIMD3<Float> {
     simd_length_squared(vector) > .ulpOfOne ? simd_normalize(vector) : fallback
 }
@@ -367,5 +425,5 @@ private func distance(_ lhs: FaceAnatomicalLandmark, _ rhs: FaceAnatomicalLandma
 
 private func rawMetric(_ id: FaceGeometryMetricID, value: Float, level: FaceGeometryEvidenceLevel, reference: String?, interpretation: String, landmarks: [FaceAnatomicalLandmark]) -> FaceGeometryMetric {
     let unit = id.rawValue.hasSuffix("MM") ? "mm" : "normalized ratio"
-    return FaceGeometryMetric(id: id, value: value, unit: unit, evidenceLevel: level, referenceText: reference, interpretation: interpretation, componentScore: nil, landmarkNames: landmarks)
+    return FaceGeometryMetric(id: id, value: value, unit: unit, evidenceLevel: level, referenceText: reference, referenceSource: nil, referenceSampleCount: nil, isReferenceProvisional: nil, interpretation: interpretation, componentScore: nil, landmarkNames: landmarks)
 }
