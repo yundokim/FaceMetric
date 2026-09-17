@@ -210,7 +210,7 @@ public enum RegistrationStrategy: String, Codable, CaseIterable, Sendable, Ident
 
     public var id: String { rawValue }
 
-    public var displayName: String {
+    public var displayName: LocalizedStringResource {
         switch self {
         case .fullFaceICP:
             return "Full Face ICP (Control)"

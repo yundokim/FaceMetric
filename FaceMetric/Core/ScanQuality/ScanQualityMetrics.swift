@@ -77,6 +77,23 @@ public enum ScanGuidance: String, Codable, Equatable, Sendable {
     case trackingUnavailable = "Face tracking unavailable"
 }
 
+public extension ScanGuidance {
+    var localizedTitle: LocalizedStringResource {
+        switch self {
+        case .centerFace: "Center your face"
+        case .lookStraightAhead: "Look straight ahead"
+        case .keepNeutralExpression: "Keep a neutral expression"
+        case .moveCloser: "Move closer"
+        case .moveFarther: "Move farther away"
+        case .holdStill: "Hold still"
+        case .ready: "Ready to capture"
+        case .capturing: "Capturing"
+        case .scanComplete: "Scan complete"
+        case .trackingUnavailable: "Face tracking unavailable"
+        }
+    }
+}
+
 public enum ScanTrackingState: String, Codable, Equatable, Sendable {
     case normal
     case limited

@@ -8,7 +8,7 @@ struct FaceComparisonView: View {
 
         var id: String { rawValue }
 
-        var title: String {
+        var title: LocalizedStringResource {
             self == .baseline ? "Baseline Scan" : "Follow-up Scan"
         }
     }
@@ -123,7 +123,7 @@ struct FaceComparisonView: View {
                     )
                 )
             } catch {
-                comparisonError = "These scans could not be compared. Try retaking the follow-up scan."
+                comparisonError = String(localized: "These scans could not be compared. Try retaking the follow-up scan.")
             }
             isComparing = false
         }
@@ -153,7 +153,7 @@ private struct ComparisonScanSelectionSection: View {
 }
 
 private struct ComparisonScanRow: View {
-    let title: String
+    let title: LocalizedStringResource
     let scan: FaceScan?
     let capture: () -> Void
 
@@ -182,13 +182,18 @@ private struct ComparisonScanRow: View {
 
             Spacer()
 
-            Button(scan == nil ? "Capture" : "Retake", action: capture)
+            Button(scan == nil ? LocalizedStringResource("Capture") : LocalizedStringResource("Retake"), action: capture)
                 .buttonStyle(.bordered)
                 .frame(minHeight: 44)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityAction(named: scan == nil ? "Capture scan" : "Retake scan", capture)
+        .accessibilityAction(
+            named: scan == nil
+                ? LocalizedStringResource("Capture scan")
+                : LocalizedStringResource("Retake scan"),
+            capture
+        )
     }
 }
 
@@ -217,7 +222,7 @@ private struct ComparisonResultSections: View {
     var body: some View {
         Section {
             VStack(alignment: .leading, spacing: 16) {
-                Text("\(comparison.studyRegion.userFacingName.uppercased()) CHANGE")
+                Text("\(comparison.studyRegion.userFacingName) change")
                     .font(.headline)
                     .foregroundStyle(.secondary)
 
@@ -228,7 +233,7 @@ private struct ComparisonResultSections: View {
                 )
                 .frame(height: 320)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                .accessibilityLabel("Interactive 3D displacement map for \(comparison.studyRegion.userFacingName)")
+                .accessibilityLabel(Text("Interactive 3D displacement map for \(comparison.studyRegion.userFacingName)"))
 
                 DisplacementScale(rangeMeters: heatmapRange)
             }
@@ -593,7 +598,7 @@ private struct TreatmentDisplacementSceneView: UIViewRepresentable {
 }
 
 private extension RegistrationStudyRegion {
-    var userFacingName: String {
+    var userFacingName: LocalizedStringResource {
         switch self {
         case .chin:
             return "Chin"

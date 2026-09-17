@@ -3,7 +3,7 @@ import SceneKit
 import SwiftUI
 
 struct ScanView: View {
-    let scanLabel: String
+    let scanLabel: LocalizedStringResource
     let onScanCompleted: ((FaceScan) -> Void)?
 
     @State private var acquisition = ScanAcquisitionUpdate.initial(
@@ -13,7 +13,7 @@ struct ScanView: View {
     @State private var completedScan: FaceScan?
 
     init(
-        scanLabel: String = "Face Scan",
+        scanLabel: LocalizedStringResource = "Face Scan",
         onScanCompleted: ((FaceScan) -> Void)? = nil
     ) {
         self.scanLabel = scanLabel
@@ -63,7 +63,7 @@ private struct ScanGuidancePanel: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Label(acquisition.guidance.rawValue, systemImage: guidanceSymbol)
+            Label(acquisition.guidance.localizedTitle, systemImage: guidanceSymbol)
                 .font(.headline)
                 .foregroundStyle(.white)
 
@@ -77,8 +77,8 @@ private struct ScanGuidancePanel: View {
 
             if acquisition.phase == .capturing || acquisition.phase == .complete {
                 Text(
-                    "\(acquisition.acceptedFrameCount) accepted · "
-                        + "\(acquisition.rejectedFrameCount) rejected"
+                    "\(acquisition.acceptedFrameCount) accepted · \(acquisition.rejectedFrameCount) rejected",
+                    comment: "Scan capture progress: the first value is accepted frames and the second is rejected frames."
                 )
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white.secondary)

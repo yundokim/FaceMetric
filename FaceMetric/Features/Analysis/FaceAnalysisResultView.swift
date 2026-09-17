@@ -116,7 +116,6 @@ struct FaceMetricHomeView: View {
                 Text(errorMessage ?? "")
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func analyzeAndSave(_ scan: FaceScan) {
