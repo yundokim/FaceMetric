@@ -29,6 +29,7 @@ struct FaceMetricHomeView: View {
     @State private var comparisonPair: SavedScanPair?
     @State private var pendingDeletion: SavedFaceAnalysis?
     @State private var isConfirmingDeleteAll = false
+    @State private var isPresentingSettings = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -60,10 +61,21 @@ struct FaceMetricHomeView: View {
                 )
             }
             .navigationTitle("FaceMetric")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Settings", systemImage: "gearshape") {
+                        isPresentingSettings = true
+                    }
+                    .labelStyle(.iconOnly)
+                }
+            }
             .navigationDestination(for: SavedFaceAnalysis.self) { record in
                 FaceAnalysisResultView(record: record) {
                     isPresentingScan = true
                 }
+            }
+            .sheet(isPresented: $isPresentingSettings) {
+                SettingsView()
             }
             .sheet(isPresented: $isPresentingScan) {
                 ScanView(scanLabel: "3D Face Scan") { scan in
