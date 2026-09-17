@@ -67,7 +67,8 @@ struct FaceMetricExperienceView: View {
                     TimelineView(
                         records: savedAnalyses,
                         showProfile: { isShowingProfile = true },
-                        startScan: { isShowingScan = true }
+                        startScan: { isShowingScan = true },
+                        deleteRecords: deleteRecords
                     )
                 case .trends:
                     TrendsOverviewView(
@@ -91,7 +92,7 @@ struct FaceMetricExperienceView: View {
             }
         }
         .sheet(isPresented: $isShowingProfile) {
-            ProfileView()
+            ProfileView(deleteAllData: deleteAllData)
         }
         .tint(FMStyle.accent)
         .task { await loadArchive() }
@@ -137,6 +138,42 @@ struct FaceMetricExperienceView: View {
                 errorMessage = error.localizedDescription
             }
             isAnalyzing = false
+        }
+    }
+
+    private func deleteRecords(_ records: [SavedFaceAnalysis]) {
+        let deletedIDs = Set(records.map(\.id))
+        Task {
+            do {
+                try await Task.detached {
+                    for record in records {
+                        try FaceAnalysisArchive.delete(record)
+                    }
+                }.value
+                withAnimation(.snappy) {
+                    savedAnalyses.removeAll { deletedIDs.contains($0.id) }
+                }
+            } catch {
+                savedAnalyses = (try? await Task.detached {
+                    try FaceAnalysisArchive.loadAll()
+                }.value) ?? savedAnalyses
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func deleteAllData() {
+        Task {
+            do {
+                try await Task.detached {
+                    try FaceAnalysisArchive.deleteAll()
+                }.value
+                withAnimation(.snappy) {
+                    savedAnalyses.removeAll()
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -234,8 +271,13 @@ private struct TimelineView: View {
     let records: [SavedFaceAnalysis]
     let showProfile: () -> Void
     let startScan: () -> Void
+    let deleteRecords: ([SavedFaceAnalysis]) -> Void
     @State private var density = TimelineDensity.months
     @State private var gestureStartDensity = TimelineDensity.months
+    @State private var isSelecting = false
+    @State private var selection = Set<UUID>()
+    @State private var isConfirmingDeletion = false
+    @State private var pendingSingleDeletion: SavedFaceAnalysis?
 
     var body: some View {
         NavigationStack {
@@ -251,7 +293,15 @@ private struct TimelineView: View {
                     }
                     .padding(.top, 100)
                 } else {
-                    TimelineGrid(records: records, density: density, startScan: startScan)
+                    TimelineGrid(
+                        records: records,
+                        density: density,
+                        isSelecting: isSelecting,
+                        selection: selection,
+                        startScan: startScan,
+                        toggleSelection: toggleSelection,
+                        requestDelete: { pendingSingleDeletion = $0 }
+                    )
                         .animation(.snappy(duration: 0.32), value: density)
                 }
             }
@@ -259,14 +309,24 @@ private struct TimelineView: View {
             .navigationTitle("Timeline")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Zoomed out", systemImage: "square.grid.3x3") { density = .years }
-                        Button("Default", systemImage: "square.grid.2x2") { density = .months }
-                        Button("Zoomed in", systemImage: "rectangle.grid.1x2") { density = .detail }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                    Button(isSelecting ? "Done" : "Select") {
+                        withAnimation(.snappy) {
+                            isSelecting.toggle()
+                            if !isSelecting { selection.removeAll() }
+                        }
                     }
-                    ProfileButton(action: showProfile)
+                    .disabled(records.isEmpty)
+                    if isSelecting {
+                        Button(role: .destructive) {
+                            isConfirmingDeletion = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .disabled(selection.isEmpty)
+                        .accessibilityLabel("Delete selected scans")
+                    } else {
+                        ProfileButton(action: showProfile)
+                    }
                 }
             }
             .simultaneousGesture(
@@ -281,7 +341,65 @@ private struct TimelineView: View {
                     }
                     .onEnded { _ in gestureStartDensity = density }
             )
+            .safeAreaInset(edge: .bottom) {
+                if isSelecting {
+                    SelectionActionBar(
+                        selectedCount: selection.count,
+                        delete: { isConfirmingDeletion = true }
+                    )
+                }
+            }
+            .confirmationDialog(
+                deletionTitle,
+                isPresented: $isConfirmingDeletion,
+                titleVisibility: .visible
+            ) {
+                Button(deletionButtonTitle, role: .destructive, action: confirmDeletion)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Deleted scans and their measurements cannot be recovered.")
+            }
+            .confirmationDialog(
+                "Delete this scan?",
+                isPresented: Binding(
+                    get: { pendingSingleDeletion != nil },
+                    set: { if !$0 { pendingSingleDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Scan", role: .destructive) {
+                    guard let record = pendingSingleDeletion else { return }
+                    deleteRecords([record])
+                    pendingSingleDeletion = nil
+                }
+                Button("Cancel", role: .cancel) { pendingSingleDeletion = nil }
+            } message: {
+                Text("This scan and its measurements cannot be recovered.")
+            }
         }
+    }
+
+    private var deletionTitle: String {
+        selection.count == 1 ? "Delete this scan?" : "Delete \(selection.count) scans?"
+    }
+
+    private var deletionButtonTitle: String {
+        selection.count == 1 ? "Delete Scan" : "Delete \(selection.count) Scans"
+    }
+
+    private func toggleSelection(_ record: SavedFaceAnalysis) {
+        if selection.contains(record.id) {
+            selection.remove(record.id)
+        } else {
+            selection.insert(record.id)
+        }
+    }
+
+    private func confirmDeletion() {
+        let recordsToDelete = records.filter { selection.contains($0.id) }
+        deleteRecords(recordsToDelete)
+        selection.removeAll()
+        isSelecting = false
     }
 
     private func zoomedIn(from level: TimelineDensity) -> TimelineDensity {
@@ -302,14 +420,18 @@ private struct TimelineView: View {
 private struct TimelineGrid: View {
     let records: [SavedFaceAnalysis]
     let density: TimelineDensity
+    let isSelecting: Bool
+    let selection: Set<UUID>
     let startScan: () -> Void
+    let toggleSelection: (SavedFaceAnalysis) -> Void
+    let requestDelete: (SavedFaceAnalysis) -> Void
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: density == .years ? 22 : 28) {
             ForEach(groupedScans) { group in
                 VStack(alignment: .leading, spacing: density == .years ? 6 : 10) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(group.date, format: density == .years ? .dateTime.month(.abbreviated).year(.twoDigits) : .dateTime.month(.wide).year())
+                        Text(groupTitle(for: group.date))
                             .font(density == .detail ? .title2.bold() : .headline)
                         Spacer()
                         if density != .years {
@@ -328,8 +450,36 @@ private struct TimelineGrid: View {
                         spacing: density.spacing
                     ) {
                         ForEach(group.records) { record in
-                            NavigationLink(value: record) {
-                                ScanThumbnail(record: record, density: density)
+                            Group {
+                                if isSelecting {
+                                    Button {
+                                        toggleSelection(record)
+                                    } label: {
+                                        ScanThumbnail(
+                                            record: record,
+                                            density: density,
+                                            isSelected: selection.contains(record.id)
+                                        )
+                                        .contentShape(Rectangle())
+                                    }
+                                    .accessibilityValue(selection.contains(record.id) ? "Selected" : "Not selected")
+                                } else {
+                                    NavigationLink(value: record) {
+                                        ScanThumbnail(record: record, density: density, isSelected: false)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .contextMenu {
+                                        Button {} label: {
+                                            Label("Share — Coming Soon", systemImage: "square.and.arrow.up")
+                                        }
+                                        .disabled(true)
+                                        Button(role: .destructive) {
+                                            requestDelete(record)
+                                        } label: {
+                                            Label("Delete Scan", systemImage: "trash")
+                                        }
+                                    }
+                                }
                             }
                             .buttonStyle(.plain)
                         }
@@ -362,15 +512,41 @@ private struct TimelineGrid: View {
         var groups: [ScanGroup] = []
         let calendar = Calendar.current
         for record in records {
-            let components = calendar.dateComponents([.year, .month], from: record.scan.timestamp)
-            let date = calendar.date(from: components) ?? record.scan.timestamp
+            let date: Date
+            switch density {
+            case .years:
+                let components = calendar.dateComponents([.year, .month], from: record.scan.timestamp)
+                date = calendar.date(from: components) ?? record.scan.timestamp
+            case .months:
+                date = calendar.dateInterval(of: .weekOfYear, for: record.scan.timestamp)?.start
+                    ?? calendar.startOfDay(for: record.scan.timestamp)
+            case .detail:
+                date = calendar.startOfDay(for: record.scan.timestamp)
+            }
             if let index = groups.firstIndex(where: { $0.date == date }) {
                 groups[index].records.append(record)
             } else {
                 groups.append(ScanGroup(date: date, records: [record]))
             }
         }
-        return groups
+        return groups.sorted { $0.date > $1.date }
+    }
+
+    private func groupTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        switch density {
+        case .years:
+            return date.formatted(.dateTime.month(.wide).year())
+        case .months:
+            let endDate = calendar.date(byAdding: .day, value: 6, to: date) ?? date
+            let start = date.formatted(.dateTime.month(.abbreviated).day())
+            let end = endDate.formatted(.dateTime.month(.abbreviated).day())
+            return "\(start) – \(end)"
+        case .detail:
+            if calendar.isDateInToday(date) { return String(localized: "Today") }
+            if calendar.isDateInYesterday(date) { return String(localized: "Yesterday") }
+            return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
+        }
     }
 
     private func previousRecord(before record: SavedFaceAnalysis) -> SavedFaceAnalysis? {
@@ -379,6 +555,31 @@ private struct TimelineGrid: View {
             return nil
         }
         return chronological[index - 1]
+    }
+}
+
+private struct SelectionActionBar: View {
+    let selectedCount: Int
+    let delete: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(selectedCount == 0 ? "Select scans" : "\(selectedCount) selected")
+                .font(.subheadline.weight(.semibold))
+                .contentTransition(.numericText())
+            Spacer()
+            Button(role: .destructive, action: delete) {
+                Image(systemName: "trash")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(selectedCount == 0)
+            .accessibilityLabel("Delete selected scans")
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 58)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
@@ -391,6 +592,7 @@ private struct ScanGroup: Identifiable {
 private struct ScanThumbnail: View {
     let record: SavedFaceAnalysis
     let density: TimelineDensity
+    let isSelected: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -398,10 +600,33 @@ private struct ScanThumbnail: View {
                 .aspectRatio(density == .detail ? 1.12 : 0.82, contentMode: .fit)
                 .clipShape(density == .detail ? AnyShape(RoundedRectangle(cornerRadius: 20)) : AnyShape(Rectangle()))
                 .overlay(alignment: .topTrailing) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(FMStyle.accent)
-                        .padding(9)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, FMStyle.accent)
+                            .padding(8)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if density == .detail {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("Overall")
+                                .font(.caption2.weight(.medium))
+                            Text(overallScore, format: .number.precision(.fractionLength(0)))
+                                .font(.title2.monospacedDigit().bold())
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(12)
+                    }
+                }
+                .overlay {
+                    if isSelected {
+                        Rectangle().stroke(FMStyle.accent, lineWidth: 4)
+                    }
                 }
 
             if density == .detail {
@@ -425,6 +650,11 @@ private struct ScanThumbnail: View {
                 .padding(.bottom, 8)
             }
         }
+    }
+
+    private var overallScore: Double {
+        record.geometryAnalysis.map { Double($0.geometryScore.overall) }
+            ?? record.analysis.overallScore
     }
 }
 
@@ -1429,10 +1659,12 @@ private enum DesiredLook: String, CaseIterable, Identifiable {
 
 private struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
+    let deleteAllData: () -> Void
     @AppStorage("profile.look") private var look = DesiredLook.cat.rawValue
     @AppStorage("settings.language") private var languageRawValue = AppLanguage.system.rawValue
     @AppStorage("settings.theme") private var themeRawValue = AppTheme.system.rawValue
     @AppStorage("settings.gender") private var sex = "Female"
+    @State private var isConfirmingDeleteAll = false
 
     var body: some View {
         NavigationStack {
@@ -1479,8 +1711,11 @@ private struct ProfileView: View {
                     Label("Export My Data", systemImage: "square.and.arrow.up")
                     Label("Account", systemImage: "person.crop.circle")
                     Label("Privacy Information", systemImage: "hand.raised")
-                    Label("Delete Data", systemImage: "trash")
-                        .foregroundStyle(.red)
+                    Button(role: .destructive) {
+                        isConfirmingDeleteAll = true
+                    } label: {
+                        Label("Delete All Facial Data", systemImage: "trash")
+                    }
                 }
             }
             .navigationTitle("Profile")
@@ -1488,6 +1723,19 @@ private struct ProfileView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .confirmationDialog(
+                "Delete all facial data?",
+                isPresented: $isConfirmingDeleteAll,
+                titleVisibility: .visible
+            ) {
+                Button("Delete All Data", role: .destructive) {
+                    deleteAllData()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every saved scan and measurement will be permanently deleted. This cannot be undone.")
             }
         }
     }
