@@ -159,7 +159,7 @@ final class FaceScanManager {
 
     private func makeCompletedScan(completedAt: Date) throws -> FaceScan {
         let meshes = acceptedFrames.map(\.mesh)
-        let representativeMesh = try FaceMeshAggregator.coordinateMedian(of: meshes)
+        let representativeMesh = try NeutralMeshBuilder.coordinateMean(of: meshes)
         let qualityMetrics = aggregateQuality(
             acceptedFrames.map(\.metrics)
         )
@@ -192,7 +192,7 @@ final class FaceScanManager {
                 acceptedFrameQuality: acceptedFrames.map(\.metrics),
                 blendShapeNames: blendShapeNames,
                 representativeBlendShapes: representativeBlendShapes,
-                aggregationMethod: "Coordinate-wise median for each topology-matched vertex",
+                aggregationMethod: "Coordinate-wise arithmetic mean of quality-gated neutral topology-matched frames",
                 coordinateSystem: "ARKit face-anchor local coordinates; meters; right-handed"
             ),
             qualityMetrics: qualityMetrics,
@@ -213,7 +213,8 @@ final class FaceScanManager {
             trackingStable: metrics.allSatisfy(\.trackingStable),
             expressionStable: metrics.allSatisfy(\.expressionStable),
             meshVariance: median(metrics.map(\.meshVariance)),
-            expressionRMSDelta: median(metrics.map(\.expressionRMSDelta))
+            expressionRMSDelta: median(metrics.map(\.expressionRMSDelta)),
+            neutralExpressionMagnitude: median(metrics.map(\.neutralExpressionMagnitude))
         )
     }
 

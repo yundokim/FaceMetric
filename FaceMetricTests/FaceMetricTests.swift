@@ -104,6 +104,26 @@ struct FaceMetricTests {
     }
 
     @Test
+    func stableNonNeutralExpressionIsRejected() {
+        let cameraToFace = cameraToFaceTransform()
+        let mesh = mesh(x: 0, topology: [0, 1, 2])
+
+        let evaluation = ScanQualityAnalyzer.evaluate(
+            mesh: mesh,
+            previousMesh: mesh,
+            blendShapes: ["mouthSmileLeft": 0.4, "mouthSmileRight": 0.4],
+            previousBlendShapes: ["mouthSmileLeft": 0.4, "mouthSmileRight": 0.4],
+            cameraToFaceTransform: cameraToFace,
+            trackingState: .normal,
+            configuration: configuration
+        )
+
+        #expect(!evaluation.isFrameValid)
+        #expect(evaluation.rejectionReasons.contains(.expressionNotNeutral))
+        #expect(evaluation.guidance == .keepNeutralExpression)
+    }
+
+    @Test
     func distanceOutsideTightCaptureBandIsRejected() {
         let mesh = mesh(x: 0, topology: [0, 1, 2])
         let evaluation = ScanQualityAnalyzer.evaluate(

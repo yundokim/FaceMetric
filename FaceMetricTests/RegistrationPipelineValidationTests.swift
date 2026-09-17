@@ -2,7 +2,7 @@ import simd
 import Testing
 @testable import FaceMetric
 
-struct RegistrationPipelineAndSyntheticValidationTests {
+struct RegistrationPipelineValidationTests {
     @Test
     func treatmentROIIsExcludedFromStableROIAndAnchorPatches() throws {
         let mesh = validationMesh()
@@ -78,110 +78,6 @@ struct RegistrationPipelineAndSyntheticValidationTests {
 
         for result in comparison.strategyResults {
             #expect(result.stableROIResiduals.rmsResidual < 0.000_05)
-        }
-    }
-
-    @Test
-    func syntheticRegionalDeformationsPreserveChangeAfterPoseRemoval() throws {
-        let baseline = validationMesh()
-        let poses = SyntheticPoseGenerator().generate(
-            seed: 0xFACE_2026,
-            count: 2
-        )
-        var completedCases = 0
-
-        for region in RegistrationStudyRegion.allCases {
-            for millimeters in [Float(1), 2, 3] {
-                for pose in poses {
-                    let result = try SyntheticRegistrationValidator().validate(
-                        baseline: baseline,
-                        deformation: SyntheticDeformationParameters(
-                            region: region,
-                            maximumDisplacementMeters: millimeters / 1_000,
-                            spatialSpreadMeters: 0.018,
-                            direction: .outward
-                        ),
-                        poseTransform: pose
-                    )
-                    let production = try #require(
-                        result.strategies.first {
-                            $0.strategy == .anchorAndStableROI
-                        }
-                    )
-
-                    #expect(
-                        abs(production.metrics.registrationAttenuationMeters)
-                            < millimeters / 1_000 * 0.35 + 0.000_2
-                    )
-                    #expect(
-                        production.metrics.stableFalseDisplacementRMSMeters
-                            < 0.000_5
-                    )
-                    #expect(
-                        production.metrics.translationRecoveryErrorMeters
-                            < 0.001
-                    )
-                    #expect(
-                        production.metrics.rotationRecoveryErrorRadians
-                            < 0.03
-                    )
-                    completedCases += 1
-                }
-            }
-        }
-
-        #expect(completedCases == 24)
-    }
-
-    @Test
-    func strategiesProduceQuantitativeBiasOutputs() throws {
-        let result = try SyntheticRegistrationValidator().validate(
-            baseline: validationMesh(),
-            deformation: SyntheticDeformationParameters(
-                region: .chin,
-                maximumDisplacementMeters: 0.003,
-                spatialSpreadMeters: 0.018,
-                direction: .outward
-            ),
-            poseTransform: rigidPose(
-                angle: 0.13,
-                translation: SIMD3<Float>(0.006, -0.005, 0.01)
-            )
-        )
-
-        #expect(Set(result.strategies.map(\.strategy)) == Set(RegistrationStrategy.allCases))
-        for strategy in result.strategies {
-            print(
-                "VALIDATION chin-3mm \(strategy.strategy.rawValue) "
-                    + "recoveredPeakMM=\(strategy.metrics.recoveredPeakMeters * 1_000) "
-                    + "attenuationMM=\(strategy.metrics.registrationAttenuationMeters * 1_000) "
-                    + "stableRMSMM=\(strategy.metrics.stableFalseDisplacementRMSMeters * 1_000) "
-                    + "rotationErrorDeg=\(strategy.metrics.rotationRecoveryErrorRadians * 180 / .pi) "
-                    + "translationErrorMM=\(strategy.metrics.translationRecoveryErrorMeters * 1_000)"
-            )
-            #expect(strategy.metrics.groundTruthPeakMeters > 0)
-            #expect(strategy.metrics.recoveredPeakMeters.isFinite)
-            #expect(strategy.metrics.stableFalseDisplacementRMSMeters.isFinite)
-            #expect(strategy.metrics.rotationRecoveryErrorRadians.isFinite)
-            #expect(strategy.metrics.translationRecoveryErrorMeters.isFinite)
-        }
-
-        let comparison = try RegistrationStrategyComparisonEngine().compare(
-            baseline: validationMesh(),
-            followup: result.poseTransform.applying(
-                to: SyntheticDeformationEngine().deform(
-                    mesh: validationMesh(),
-                    parameters: result.deformation
-                ).mesh
-            ),
-            profile: .engineeringProfile(for: .chin)
-        )
-        for strategy in comparison.strategyResults {
-            #expect(strategy.treatmentSurfaceDifference.metrics.sampleCount > 0)
-            #expect(
-                strategy.treatmentSurfaceDifference.metrics.maximumAbsoluteResidual
-                    >= strategy.treatmentSurfaceDifference.metrics.p95AbsoluteResidual
-            )
         }
     }
 

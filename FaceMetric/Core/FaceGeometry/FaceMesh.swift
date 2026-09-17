@@ -29,6 +29,46 @@ public struct FaceMesh: Codable, Equatable, Sendable {
     public nonisolated var simdVertices: [SIMD3<Float>] {
         vertices.map(\.simdValue)
     }
+
+    /// Stable identifier for an ARFaceGeometry topology. Landmark calibration
+    /// may be shared between users only when this signature matches.
+    public nonisolated var topologySignature: String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        func combine(_ value: UInt16) {
+            hash ^= UInt64(value)
+            hash &*= 1_099_511_628_211
+        }
+        for byte in withUnsafeBytes(of: UInt64(vertices.count).littleEndian, Array.init) {
+            combine(UInt16(byte))
+        }
+        for index in triangleIndices {
+            let value = UInt16(bitPattern: index)
+            combine(value & 0x00FF)
+            combine(value >> 8)
+        }
+        return String(format: "%016llx", hash)
+    }
+}
+
+/// Builds one neutral representative in ARKit face-local meters from the
+/// quality-gated, expression-neutral temporal window collected by FaceScanManager.
+public enum NeutralMeshBuilder {
+    public nonisolated static func coordinateMean(of meshes: [FaceMesh]) throws -> FaceMesh {
+        guard let first = meshes.first else {
+            throw FaceMeshAggregator.AggregationError.noFrames
+        }
+        guard meshes.allSatisfy({
+            $0.vertices.count == first.vertices.count && $0.triangleIndices == first.triangleIndices
+        }) else {
+            throw FaceMeshAggregator.AggregationError.incompatibleTopology
+        }
+
+        let count = Float(meshes.count)
+        let vertices = first.vertices.indices.map { index in
+            meshes.reduce(SIMD3<Float>.zero) { $0 + $1.simdVertices[index] } / count
+        }
+        return FaceMesh(vertices: vertices, triangleIndices: first.triangleIndices)
+    }
 }
 
 public enum FaceMeshAggregator {

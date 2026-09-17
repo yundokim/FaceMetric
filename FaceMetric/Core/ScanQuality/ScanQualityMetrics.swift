@@ -22,6 +22,8 @@ public struct ScanQualityMetrics: Codable, Equatable, Sendable {
     let meshVariance: Float
     /// RMS change in ARKit blend-shape coefficients from the preceding frame.
     let expressionRMSDelta: Float
+    /// Largest neutral-expression blend-shape coefficient in the current frame.
+    let neutralExpressionMagnitude: Float
 }
 
 public struct ScanQualityConfiguration: Codable, Equatable, Sendable {
@@ -36,6 +38,7 @@ public struct ScanQualityConfiguration: Codable, Equatable, Sendable {
     let maximumAbsoluteVerticalOffset: Float
     let maximumMeshRMS: Float
     let maximumExpressionRMSDelta: Float
+    let maximumNeutralExpressionMagnitude: Float
     let requiredValidFrameCount: Int
     let minimumCaptureDuration: TimeInterval
 
@@ -55,6 +58,7 @@ public struct ScanQualityConfiguration: Codable, Equatable, Sendable {
         maximumAbsoluteVerticalOffset: 0.025,
         maximumMeshRMS: 0.0008,
         maximumExpressionRMSDelta: 0.025,
+        maximumNeutralExpressionMagnitude: 0.12,
         requiredValidFrameCount: 30,
         minimumCaptureDuration: 1.0
     )
@@ -90,6 +94,7 @@ enum ScanFrameRejectionReason: String, Codable, Equatable, Sendable {
     case tooFar
     case meshMotion
     case expressionChange
+    case expressionNotNeutral
 }
 
 public struct ScanQualityEvaluation: Equatable, Sendable {
@@ -120,6 +125,7 @@ public enum ScanQualityAnalyzer {
         let expressionRMSDelta = previousBlendShapes
             .map { expressionRMS(from: $0, to: blendShapes) }
             ?? 0
+        let neutralExpressionMagnitude = neutralExpressionMagnitude(blendShapes)
 
         let rejectionReasons = rejectionReasons(
             trackingState: trackingState,
@@ -131,10 +137,14 @@ public enum ScanQualityAnalyzer {
             verticalOffset: translation.y,
             meshRMS: meshRMS,
             expressionRMSDelta: expressionRMSDelta,
+            neutralExpressionMagnitude: neutralExpressionMagnitude,
             configuration: configuration
         )
         let expressionStable = !rejectionReasons.contains(.expressionChange)
-        let trackingStable = rejectionReasons.allSatisfy { $0 == .expressionChange }
+            && !rejectionReasons.contains(.expressionNotNeutral)
+        let trackingStable = rejectionReasons.allSatisfy {
+            $0 == .expressionChange || $0 == .expressionNotNeutral
+        }
 
         return ScanQualityEvaluation(
             metrics: ScanQualityMetrics(
@@ -147,7 +157,8 @@ public enum ScanQualityAnalyzer {
                 trackingStable: trackingStable,
                 expressionStable: expressionStable,
                 meshVariance: meshVariance,
-                expressionRMSDelta: expressionRMSDelta
+                expressionRMSDelta: expressionRMSDelta,
+                neutralExpressionMagnitude: neutralExpressionMagnitude
             ),
             guidance: guidance(for: rejectionReasons),
             rejectionReasons: rejectionReasons,
@@ -181,6 +192,20 @@ public enum ScanQualityAnalyzer {
         return sqrt(sum / Float(keys.count))
     }
 
+    nonisolated private static func neutralExpressionMagnitude(
+        _ blendShapes: [String: Float]
+    ) -> Float {
+        let expressionKeys = [
+            "jawOpen", "mouthFunnel", "mouthPucker",
+            "mouthSmileLeft", "mouthSmileRight",
+            "mouthFrownLeft", "mouthFrownRight",
+            "mouthPressLeft", "mouthPressRight",
+            "mouthStretchLeft", "mouthStretchRight",
+            "cheekPuff", "tongueOut"
+        ]
+        return expressionKeys.map { blendShapes[$0] ?? 0 }.max() ?? 0
+    }
+
     nonisolated private static func rejectionReasons(
         trackingState: ScanTrackingState,
         yaw: Float,
@@ -191,6 +216,7 @@ public enum ScanQualityAnalyzer {
         verticalOffset: Float,
         meshRMS: Float,
         expressionRMSDelta: Float,
+        neutralExpressionMagnitude: Float,
         configuration: ScanQualityConfiguration
     ) -> [ScanFrameRejectionReason] {
         var reasons = [ScanFrameRejectionReason]()
@@ -230,6 +256,9 @@ public enum ScanQualityAnalyzer {
         if expressionRMSDelta > configuration.maximumExpressionRMSDelta {
             reasons.append(.expressionChange)
         }
+        if neutralExpressionMagnitude > configuration.maximumNeutralExpressionMagnitude {
+            reasons.append(.expressionNotNeutral)
+        }
 
         return reasons
     }
@@ -264,7 +293,8 @@ public enum ScanQualityAnalyzer {
             || reasons.contains(.rollOutsideRange) {
             return .lookStraightAhead
         }
-        if reasons.contains(.expressionChange) {
+        if reasons.contains(.expressionChange)
+            || reasons.contains(.expressionNotNeutral) {
             return .keepNeutralExpression
         }
         if reasons.contains(.meshMotion) {

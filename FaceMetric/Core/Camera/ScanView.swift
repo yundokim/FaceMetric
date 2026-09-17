@@ -201,6 +201,14 @@ private struct ScanDebugOverlay: View {
                     )
                 )
                 LabeledContent(
+                    "Neutral expression",
+                    value: String(
+                        format: "%.4f / %.4f",
+                        metrics.neutralExpressionMagnitude,
+                        ScanQualityConfiguration.engineeringDefault.maximumNeutralExpressionMagnitude
+                    )
+                )
+                LabeledContent(
                     "Tracking stable",
                     value: metrics.trackingStable ? "Yes" : "No"
                 )
@@ -317,6 +325,8 @@ private struct ScanDebugOverlay: View {
             return "mesh motion"
         case .expressionChange:
             return "expression change"
+        case .expressionNotNeutral:
+            return "expression not neutral"
         }
     }
 
