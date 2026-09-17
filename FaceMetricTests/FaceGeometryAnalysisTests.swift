@@ -90,118 +90,148 @@ struct FaceGeometryAnalysisTests {
     }
 
     @Test
-    func continuousScoringIsFullInsideAndSmoothOutside() {
-        let inside = GeometryScorer.continuousIntervalScore(value: 1, interval: 0.9...1.1)
-        let near = GeometryScorer.continuousIntervalScore(value: 1.15, interval: 0.9...1.1)
-        let far = GeometryScorer.continuousIntervalScore(value: 1.3, interval: 0.9...1.1)
+    func continuousTargetScoringDecaysSmoothlyWithoutAPlateauOrHardZero() {
+        let interval: ClosedRange<Float> = 0.9...1.1
+        let targetScore = GeometryScorer.continuousTargetScore(value: 1, target: 1, idealInterval: interval)
+        let slightlyOffTarget = GeometryScorer.continuousTargetScore(value: 1.001, target: 1, idealInterval: interval)
+        let halfWidthAway = GeometryScorer.continuousTargetScore(value: 1.1, target: 1, idealInterval: interval)
+        let fartherAway = GeometryScorer.continuousTargetScore(value: 1.3, target: 1, idealInterval: interval)
+        let finiteExtreme = GeometryScorer.continuousTargetScore(value: 100, target: 1, idealInterval: interval)
 
-        #expect(inside == 100)
-        #expect(near < inside)
-        #expect(far < near)
-        #expect(near > 0 && far > 0)
+        #expect(targetScore == 100)
+        #expect(slightlyOffTarget < targetScore)
+        #expect(abs(halfWidthAway - 90) < 0.001)
+        #expect(fartherAway < halfWidthAway)
+        #expect(finiteExtreme > 0)
     }
 
     @Test
-    func maleV01ProfileContainsProvisionalCohortMetadataAndScoresIntervals() {
-        let profile = FaceGeometryReferenceProfile.maleV01
-        let expectedSampleCounts: [FaceGeometryMetricID: Int] = [
-            .faceHeightWidth: 1,
-            .upperThirdRatio: 1,
-            .middleThirdRatio: 1,
-            .lowerThirdRatio: 1,
-            .leftEyeWidthRatio: 1,
-            .rightEyeWidthRatio: 1,
-            .leftEyeAspectRatio: 1,
-            .rightEyeAspectRatio: 1,
-            .intercanthalRatio: 1,
-            .noseWidthRatio: 1,
-            .upperLowerLipRatio: 1
+    func oneSidedSymmetryScoringUsesContinuousMillimeterTolerance() {
+        let atZero = GeometryScorer.continuousOneSidedScore(value: 0, target: 0, tolerance: 1)
+        let atOneMillimeter = GeometryScorer.continuousOneSidedScore(value: 1, target: 0, tolerance: 1)
+        let atThreeMillimeters = GeometryScorer.continuousOneSidedScore(value: 3, target: 0, tolerance: 1)
+        let beyondThreeMillimeters = GeometryScorer.continuousOneSidedScore(value: 4, target: 0, tolerance: 1)
+
+        #expect(atZero == 100)
+        #expect(abs(atOneMillimeter - 90) < 0.001)
+        #expect(abs(atThreeMillimeters - 50) < 0.001)
+        #expect(beyondThreeMillimeters < atThreeMillimeters)
+        #expect(beyondThreeMillimeters > 0)
+    }
+
+    @Test
+    func maleProfileContainsCurrentTargetsIntervalsAndMetadata() throws {
+        let profile = FaceGeometryReferenceProfiles.male
+        let expected: [FaceGeometryMetricID: (Float, ClosedRange<Float>)] = [
+            .faceHeightWidth: (1.6459, 1.605...1.687),
+            .upperThirdRatio: (0.9778, 0.958...0.998),
+            .middleThirdRatio: (1.0720, 1.047...1.097),
+            .lowerThirdRatio: (0.9502, 0.927...0.974),
+            .leftEyeWidthRatio: (0.2360, 0.231...0.241),
+            .rightEyeWidthRatio: (0.2360, 0.231...0.241),
+            .leftEyeAspectRatio: (2.4121, 2.312...2.512),
+            .rightEyeAspectRatio: (2.4121, 2.312...2.512),
+            .intercanthalRatio: (0.3123, 0.305...0.319),
+            .noseWidthRatio: (0.3058, 0.298...0.314),
+            .upperLowerLipRatio: (0.7979, 0.758...0.838)
         ]
 
         #expect(profile.sex == .male)
-        #expect(profile.version == "male-v0.1")
-        #expect(profile.metricReferences.count == expectedSampleCounts.count)
-        for (id, sampleCount) in expectedSampleCounts {
-            let reference = profile.reference(for: id)
-            #expect(reference?.sampleCount == sampleCount)
-            #expect(reference?.isProvisional == true)
-            if let reference {
-                #expect(GeometryScorer.continuousIntervalScore(value: reference.target, interval: reference.idealInterval) == 100)
-            }
-        }
-        #expect(profile.reference(for: .faceHeightWidth)?.source == .manualAestheticReference)
-        #expect(profile.reference(for: .upperThirdRatio)?.source == .m01ProvisionalFallback)
-        #expect(profile.reference(for: .upperLowerLipRatio)?.provenance.contains("M01 provisional fallback") == true)
-    }
-
-    @Test
-    func latestMaleV01TargetsAndIntervalsUseContinuousGaussianScoring() throws {
-        let profile = FaceGeometryReferenceProfile.maleV01
-        let expected: [FaceGeometryMetricID: (Float, ClosedRange<Float>)] = [
-            .faceHeightWidth: (1.7032, 1.678...1.728),
-            .upperThirdRatio: (0.992, 0.972...1.012),
-            .middleThirdRatio: (1.063, 1.038...1.088),
-            .lowerThirdRatio: (0.945, 0.920...0.970),
-            .leftEyeWidthRatio: (0.24125, 0.236...0.246),
-            .rightEyeWidthRatio: (0.24125, 0.236...0.246),
-            .leftEyeAspectRatio: (2.37890, 2.279...2.479),
-            .rightEyeAspectRatio: (2.37890, 2.279...2.479),
-            .intercanthalRatio: (0.32586, 0.319...0.333),
-            .noseWidthRatio: (0.31553, 0.308...0.324),
-            .upperLowerLipRatio: (0.889, 0.854...0.924)
-        ]
-
+        #expect(profile.metricReferences.count == expected.count)
         for (id, expectedReference) in expected {
             let reference = try #require(profile.reference(for: id))
             #expect(reference.target == expectedReference.0)
             #expect(reference.idealInterval == expectedReference.1)
-            #expect(GeometryScorer.continuousIntervalScore(value: reference.target, interval: reference.idealInterval) == 100)
-            #expect(GeometryScorer.continuousIntervalScore(value: reference.idealInterval.lowerBound, interval: reference.idealInterval) == 100)
-            #expect(GeometryScorer.continuousIntervalScore(value: reference.idealInterval.upperBound, interval: reference.idealInterval) == 100)
-
-            let intervalWidth = reference.idealInterval.upperBound - reference.idealInterval.lowerBound
-            let justOutside = reference.idealInterval.upperBound + intervalWidth
-            let fartherOutside = reference.idealInterval.upperBound + intervalWidth * 2
-            let outsideScore = GeometryScorer.continuousIntervalScore(value: justOutside, interval: reference.idealInterval)
-            let fartherScore = GeometryScorer.continuousIntervalScore(value: fartherOutside, interval: reference.idealInterval)
-            #expect(outsideScore < 100)
-            #expect(fartherScore < outsideScore)
+            #expect(reference.sampleCount == 2)
+            #expect(reference.isProvisional)
+            #expect(reference.source == .manualAestheticReference)
         }
     }
 
     @Test
-    func femaleProfileIsExplicitlyUnavailableWithoutMaleFallback() throws {
-        #expect(FaceGeometryReferenceProfile.femalePlaceholder.metricReferences.isEmpty)
+    func femaleProfileIsUnavailableWithoutMaleFallback() throws {
         #expect(FaceGeometryReferenceProfiles.profile(for: .female) == nil)
-        #expect(FaceGeometryReferenceProfiles.availability(for: .female) == .unavailable(sex: .female))
 
         let fixture = makeFixture()
         let result = try FaceGeometryAnalyzer(
             configuration: fixture.config,
             referenceSex: .female
         ).analyze(scan: fixture.scan)
-        let cohortMetricIDs = Set(FaceGeometryReferenceProfile.maleV01.metricReferences.keys)
-        let cohortMetrics = result.metrics.values.filter { cohortMetricIDs.contains($0.id) }
+        let profiledMetricIDs = Set(FaceGeometryReferenceProfiles.male.metricReferences.keys)
+        let profiledMetrics = result.metrics.values.filter { profiledMetricIDs.contains($0.id) }
 
-        #expect(cohortMetrics.allSatisfy { $0.componentScore == nil })
-        #expect(cohortMetrics.allSatisfy { $0.referenceSource == nil })
+        #expect(profiledMetrics.allSatisfy { $0.componentScore == nil })
+        #expect(profiledMetrics.allSatisfy { $0.referenceSource == nil })
     }
 
     @Test
-    func analyzerUsesMaleIntervalsForEyeLipAndNoseScoring() throws {
+    func analyzerUsesMaleTargetsForEyeLipAndNoseScoring() throws {
         let fixture = makeFixture()
         let result = try FaceGeometryAnalyzer(configuration: fixture.config).analyze(scan: fixture.scan)
         let metrics = Dictionary(uniqueKeysWithValues: result.metrics.values.map { ($0.id, $0) })
 
         for id in [FaceGeometryMetricID.leftEyeAspectRatio, .rightEyeAspectRatio, .upperLowerLipRatio, .noseWidthRatio] {
             let metric = try #require(metrics[id])
-            let reference = try #require(FaceGeometryReferenceProfile.maleV01.reference(for: id))
-            #expect(metric.componentScore == GeometryScorer.continuousIntervalScore(value: metric.value, interval: reference.idealInterval))
+            let reference = try #require(FaceGeometryReferenceProfiles.male.reference(for: id))
+            #expect(metric.componentScore == GeometryScorer.continuousTargetScore(value: metric.value, target: reference.target, idealInterval: reference.idealInterval))
             #expect(metric.referenceText?.contains("Ye et al.") == false)
         }
 
         #expect(result.geometryScore.facialProportion > 0)
         #expect(result.geometryScore.components.contains { $0.id == .noseWidthRatio })
+    }
+
+    @Test
+    func overallScoreUsesProductionMetricWeights() throws {
+        let fixture = makeFixture()
+        let score = try FaceGeometryAnalyzer(configuration: fixture.config).analyze(scan: fixture.scan).geometryScore
+        let weights: [FaceGeometryMetricID: Float] = [
+            .faceHeightWidth: 1,
+            .upperThirdRatio: 0.33,
+            .middleThirdRatio: 0.34,
+            .lowerThirdRatio: 0.33,
+            .leftEyeWidthRatio: 0.5,
+            .rightEyeWidthRatio: 0.5,
+            .leftEyeAspectRatio: 0.375,
+            .rightEyeAspectRatio: 0.375,
+            .intercanthalRatio: 1,
+            .noseWidthRatio: 1,
+            .upperLowerLipRatio: 0.75,
+            .zygomaticAsymmetryMM: 1
+        ]
+        let weightedComponents = score.components.compactMap { metric -> (Float, Float)? in
+            guard let componentScore = metric.componentScore, let weight = weights[metric.id] else { return nil }
+            return (componentScore, weight)
+        }
+        let expectedOverall = weightedComponents.reduce(0) { $0 + $1.0 * $1.1 }
+            / weightedComponents.reduce(0) { $0 + $1.1 }
+        let categoryMean = (score.facialProportion + score.symmetry + score.eyeAndMidface + score.lowerFace) / 4
+
+        #expect(abs(score.overall - expectedOverall) < 0.0001)
+        #expect(abs(score.overall - categoryMean) > 0.0001)
+    }
+
+    @Test
+    func eyeBoxUsesTransverseAndVerticalProjectionAndIgnoresDepth() throws {
+        let fixture = makeFixture()
+        let baseline = try FaceGeometryAnalyzer(configuration: fixture.config).analyze(scan: fixture.scan).metrics
+        var changedVertices = fixture.scan.mesh.simdVertices
+        let eyeLandmarks: [FaceAnatomicalLandmark] = [
+            .endocanthionLeft, .exocanthionLeft, .upperEyelidLeft, .lowerEyelidLeft,
+            .endocanthionRight, .exocanthionRight, .upperEyelidRight, .lowerEyelidRight
+        ]
+        for (offset, landmark) in eyeLandmarks.enumerated() {
+            let index = try #require(fixture.config.vertexIndex(for: landmark))
+            changedVertices[index].z += Float(offset + 1)
+        }
+        let changedMesh = FaceMesh(vertices: changedVertices, triangleIndices: fixture.scan.mesh.triangleIndices)
+        let changed = try FaceGeometryAnalyzer(configuration: fixture.config).analyze(scan: makeScan(changedMesh)).metrics
+
+        for id in [FaceGeometryMetricID.leftEyeWidthRatio, .rightEyeWidthRatio, .leftEyeAspectRatio, .rightEyeAspectRatio] {
+            #expect(changed.value(id) == baseline.value(id))
+        }
+        #expect(abs((baseline.value(.leftEyeAspectRatio) ?? 0) - 4) < 0.0001)
+        #expect(abs((baseline.value(.rightEyeAspectRatio) ?? 0) - 4) < 0.0001)
     }
 
     @Test
