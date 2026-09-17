@@ -241,8 +241,16 @@ private struct ScanCallToActionSection: View {
     var body: some View {
         Section {
             Button(action: startScan) {
-                Label("Start 3D Face Scan", systemImage: "viewfinder")
-                    .frame(maxWidth: .infinity)
+                ZStack {
+                    Text("Start 3D Face Scan")
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+
+                    HStack {
+                        Image(systemName: "viewfinder")
+                        Spacer()
+                    }
+                }
             }
             .buttonStyle(.borderedProminent)
             .disabled(isAnalyzing)
